@@ -25,10 +25,26 @@ from sklearn.ensemble import RandomForestRegressor
 import networkx as nx
 from rdkit.Chem import rdmolops
 from rdkit.Geometry import Point3D
+from dscribe.descriptors import SOAP
+from ase import Atoms
 
 # df = pd.read_csv("/Users/alexanderhowarth/Documents/G3BP1/TRB000"+str(code)+"/G3BP1_"+str(code)+"_grouped.csv")
 
 # df['suramin_normalised_mean'] = np.abs(df['suramin_normalised_mean'])
+
+def make_SOAP_mol(molecule):
+
+    symbols = []
+
+    print(molecule)
+    positions = molecule.GetConformer().GetPositions()
+
+
+
+    for atom in molecule.GetAtoms():
+        symbols.append(atom.GetSymbol())
+
+    return Atoms(symbols=symbols, positions=positions)
 
 def standardize(mol):
     clean_mol = rdMolStandardize.Cleanup(mol)
@@ -63,6 +79,22 @@ def make_mol(mols):
 
     return np.array(atomic_mass), np.array(positions), np.array(atomic_numbers),symbols,atom_aromatic
 
+
+def embed_mol_smiles(s):
+
+    mol = rdmolops.AddHs(s)
+
+    if mol:
+
+        AllChem.EmbedMolecule(mol)
+
+        AllChem.MMFFOptimizeMolecule(mol, maxIters=10000)
+
+        return mol
+
+    else:
+
+        return None
 
 def write_mol_xyz(mol,coords_,kmeans):
 
@@ -299,6 +331,8 @@ def make_beads(mols):
     '''
     return beads, dist
 
+
+
 def match_to_substructures(mol):
 
     HDonorSmarts = Chem.MolFromSmarts('[$([N;!H0;v3]),$([N;!H0;+1;v4]),$([O,S;H1;+0]),$([n;H1;+0])]')
@@ -506,15 +540,15 @@ def make_representation(beads, mols,bead_dist):
     return np.array(reps)
 
 
-def train_RF(train_descs,test_descs, train_IC50,test_IC50):
+def train_RF(train,test):
 
-    train_fps = np.array([i for i in train_descs])
+    train_fps = np.array([i for i in train['SOAPs']])
 
-    test_fps = np.array(test_descs)
+    test_fps = np.array([test['SOAPs']])
 
-    train_y = np.array(train_IC50)
+    train_y = np.array(train['IC50'])
 
-    test_y = np.array(test_IC50)
+    test_y = np.array(test['IC50'])
 
     rf = RandomForestRegressor(n_estimators=10, random_state=42)
 
@@ -583,7 +617,7 @@ def make_and_align_smiles(smiles):
 
 property = 'b_ratio'
 
-property = "RPS"
+#property = "RPS"
 
 df = pd.read_csv("/Users/alexanderhowarth/Desktop/total_b_ratio.csv").dropna(subset=property)
 
@@ -591,7 +625,7 @@ df = df.drop_duplicates(subset='Compound_ID')
 
 print(len(df))
 
-code = "TRB000 series"
+code = "TRB0005601 series"
 
 df = df[df["STRUCTURE_COMMENT"] == code]
 
@@ -608,63 +642,58 @@ def MF_RF(ind1,df):
 
         smiles.append(r['Smiles'])
 
-    mols = make_and_align_smiles(smiles)
+    mols_ = [ standardize(Chem.MolFromSmiles(m)) for m in smiles ]
 
-    atomic_mass , positions, atomic_numbers, symbols, atom_aromatic = make_mol(mols)
+    mols = []
 
-    direction_vector , origin = find_basis(positions,atomic_mass)
+    for m in mols_:
 
-    mols = change_basis(mols,direction_vector,origin)
+        mols.append(embed_mol_smiles(m))
 
-    with Chem.SDWriter('align.sdf') as w:
+    print(mols)
 
-        for m in mols:
+    a_symbols = []
 
-            w.write(m)
+    for m in mols:
 
-    Rs = []
+        for atom in m.GetAtoms():
+
+            a_symbols.append(atom.GetSymbol())
+
+    a_symbols = list(set(a_symbols))
+
+    samples = []
+
+    soap = SOAP(species=a_symbols, rcut=5.0, nmax=4, lmax=4, sigma=0.1
+
+                , periodic=False, crossover=True,
+                     sparse=False, average="inner")
+
+    for m in mols:
+
+        samples.append(make_SOAP_mol(m))
+
+    descs = soap.create(samples, n_jobs=1 )
+
+    df_soap = pd.DataFrame([[S, Ic] for S, Ic in zip(descs, IC50)], columns=["SOAPs", "IC50"])
 
     av_vs = []
 
     av_ps = []
 
-    std_ps = []
+    for i2, r_ in df_soap.iterrows():
 
-    for i in range(len(mols)):
+        test = r_
 
-        print("progress" , i/len(mols))
+        train = df_soap.drop(i2)
 
-        train_IC50 = IC50[:i] + IC50[min(i + 1 ,len(IC50))  :]
+        # make predictions
 
-        test_IC50 = IC50[i]
+        test_pred, test_val = train_RF(train, test)
 
-        train_mols = mols[:i] + mols[min(i + 1 ,len(mols)):]
+        av_vs.append(test_val)
 
-        test_mols = mols[i]
-
-        beads, bead_dist,  = make_beads(train_mols)
-
-        train_descs = make_representation(beads, train_mols,bead_dist)
-
-        test_descs = make_representation(beads, [test_mols],bead_dist)
-
-        test_vs = []
-
-        test_ps = []
-
-        for j in range(0, 2):
-
-            # make predictions
-
-            test_pred, test_val = train_RF(train_descs,test_descs, train_IC50,test_IC50)
-
-            test_ps.append(test_pred)
-
-            test_vs.append(test_val)
-
-        std_ps.append(np.std(np.abs(np.array(test_vs) - np.array(test_ps))))
-        av_vs.append(test_vs[0])
-        av_ps.append(np.mean(test_ps, axis=0))
+        av_ps.append(test_pred)
 
     r2 = r2_score(av_vs, av_ps)
 
@@ -688,13 +717,14 @@ def MF_RF(ind1,df):
 
     )
 
-    plt.xlabel("Experimental")
-    plt.ylabel("Predicted")
+    plt.xlabel("Experimental " + property)
+    plt.ylabel("Predicted " + property)
 
     #plt.savefig(folder + "/" + r['ID'] + ".png")
 
     plt.show()
     plt.close()
+
 
 MF_RF(0,df)
 

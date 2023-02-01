@@ -601,7 +601,7 @@ ref_mol = standardize(ref_mol)
 
 #ref_mol = embed_mol_sdf(ref_mol)
 
-ref_mol = embed_mol_2d(ref_mol)
+ref_mol = embed_mol_sdf(ref_mol)
 
 ref_beads, ref_bead_connections,bead_n = make_beads(ref_mol,R)
 
@@ -662,29 +662,34 @@ def SearchWorker(args):
 
         if m:
 
-            ######
 
-            # embed this new mol
+            ###### calculate some physchem properties for initial filters
 
-            #m = embed_mol_sdf(m)
+            prob_props = Physchem_calc(m)
 
-            m = embed_mol_2d(m)
+            if Physchem_filter(prob_props, ref_props):
 
-            prob_beads, prob_bead_connections, prob_bead_n = make_beads(m, R)
+                ######
 
-            prob_rep = make_representation(prob_beads, m, R)
+                # embed this new mol
 
-            prob_encodings = bead_encode(prob_rep)
+                embed_mol_sdf(m)
 
-            prob_G = make_graph(prob_bead_n, prob_bead_connections, prob_encodings)
+                prob_beads, prob_bead_connections, prob_bead_n = make_beads(m, R)
 
-            prob_hash = nx.weisfeiler_lehman_graph_hash(prob_G,node_attr='encoding')
+                prob_rep = make_representation(prob_beads, m, R)
 
-            if prob_hash == ref_hash:
+                prob_encodings = bead_encode(prob_rep)
 
-                NNs.append(m)
+                prob_G = make_graph(prob_bead_n, prob_bead_connections, prob_encodings)
 
-                print("found ", proc, len(NNs))
+                prob_hash = nx.weisfeiler_lehman_graph_hash(prob_G,node_attr='encoding')
+
+                if prob_hash == ref_hash:
+
+                    NNs.append(m)
+
+                    print("found ", proc, len(NNs))
 
     if len(NNs) > 0:
 

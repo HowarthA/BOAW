@@ -506,15 +506,15 @@ def make_representation(beads, mols,bead_dist):
     return np.array(reps)
 
 
-def train_RF(train_descs,test_descs, train_IC50,test_IC50):
+def train_RF(train,test):
 
-    train_fps = np.array([i for i in train_descs])
+    train_fps = np.array([i for i in train['SOAPs']])
 
-    test_fps = np.array(test_descs)
+    test_fps = np.array([test['SOAPs']])
 
-    train_y = np.array(train_IC50)
+    train_y = np.array(train['IC50'])
 
-    test_y = np.array(test_IC50)
+    test_y = np.array(test['IC50'])
 
     rf = RandomForestRegressor(n_estimators=10, random_state=42)
 
@@ -591,7 +591,7 @@ df = df.drop_duplicates(subset='Compound_ID')
 
 print(len(df))
 
-code = "TRB000 series"
+code = "TRB0005601 series"
 
 df = df[df["STRUCTURE_COMMENT"] == code]
 
@@ -608,63 +608,29 @@ def MF_RF(ind1,df):
 
         smiles.append(r['Smiles'])
 
-    mols = make_and_align_smiles(smiles)
+    mols = [ standardize(Chem.MolFromSmiles(m)) for m in smiles ]
 
-    atomic_mass , positions, atomic_numbers, symbols, atom_aromatic = make_mol(mols)
+    descs = [AllChem.GetMorganFingerprintAsBitVect(m, 2, 1024) for m in mols]
 
-    direction_vector , origin = find_basis(positions,atomic_mass)
-
-    mols = change_basis(mols,direction_vector,origin)
-
-    with Chem.SDWriter('align.sdf') as w:
-
-        for m in mols:
-
-            w.write(m)
-
-    Rs = []
+    df_soap = pd.DataFrame([[S, Ic] for S, Ic in zip(descs, IC50)], columns=["SOAPs", "IC50"])
 
     av_vs = []
 
     av_ps = []
 
-    std_ps = []
+    for i2, r_ in df_soap.iterrows():
 
-    for i in range(len(mols)):
+        test = r_
 
-        print("progress" , i/len(mols))
+        train = df_soap.drop(i2)
 
-        train_IC50 = IC50[:i] + IC50[min(i + 1 ,len(IC50))  :]
+        # make predictions
 
-        test_IC50 = IC50[i]
+        test_pred, test_val = train_RF(train, test)
 
-        train_mols = mols[:i] + mols[min(i + 1 ,len(mols)):]
+        av_vs.append(test_val)
 
-        test_mols = mols[i]
-
-        beads, bead_dist,  = make_beads(train_mols)
-
-        train_descs = make_representation(beads, train_mols,bead_dist)
-
-        test_descs = make_representation(beads, [test_mols],bead_dist)
-
-        test_vs = []
-
-        test_ps = []
-
-        for j in range(0, 2):
-
-            # make predictions
-
-            test_pred, test_val = train_RF(train_descs,test_descs, train_IC50,test_IC50)
-
-            test_ps.append(test_pred)
-
-            test_vs.append(test_val)
-
-        std_ps.append(np.std(np.abs(np.array(test_vs) - np.array(test_ps))))
-        av_vs.append(test_vs[0])
-        av_ps.append(np.mean(test_ps, axis=0))
+        av_ps.append(test_pred)
 
     r2 = r2_score(av_vs, av_ps)
 
@@ -688,13 +654,14 @@ def MF_RF(ind1,df):
 
     )
 
-    plt.xlabel("Experimental")
-    plt.ylabel("Predicted")
+    plt.xlabel("Experimental " + property)
+    plt.ylabel("Predicted " + property)
 
     #plt.savefig(folder + "/" + r['ID'] + ".png")
 
     plt.show()
     plt.close()
+
 
 MF_RF(0,df)
 
