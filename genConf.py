@@ -26,7 +26,7 @@ def genConf(m):
     ###########
     nmol = 1
     rms = -1
-    rmspost = 0.5
+    rmspost = 1.0
     irmsd = "Not"
     threads = 1
     efilter = "Y"

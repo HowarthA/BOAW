@@ -2,7 +2,7 @@ from rdkit.Chem import rdDepictor
 rdDepictor.SetPreferCoordGen(True)
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
-from lmfit import Parameters, fit_report, minimize
+
 from scipy.spatial.transform import Rotation
 from rdkit.Chem.rdPartialCharges import ComputeGasteigerCharges
 from rdkit.Chem import rdMolAlign
@@ -12,7 +12,7 @@ from rdkit.Chem import rdDepictor
 rdDepictor.SetPreferCoordGen(True)
 from rdkit.Chem import AllChem
 import pandas as pd
-import tqdm
+
 from matplotlib import pyplot as plt
 from rdkit.Chem.MolStandardize import rdMolStandardize
 from sklearn.metrics import r2_score
@@ -22,9 +22,10 @@ from rdkit.Chem import rdMolDescriptors
 from sklearn import decomposition
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
-import networkx as nx
+
 from rdkit.Chem import rdmolops
 from rdkit.Geometry import Point3D
+import pickle
 
 # df = pd.read_csv("/Users/alexanderhowarth/Documents/G3BP1/TRB000"+str(code)+"/G3BP1_"+str(code)+"_grouped.csv")
 
@@ -158,146 +159,7 @@ def change_basis(mols , direction_vector,origin):
     return mols
 
 
-def make_beads(mols):
 
-    #### rotate mol onto PC axis
-
-    basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-
-    atom_masses, atom_coords, atomic_nums,symbols,atom_aromatic = make_mol(mols)
-
-    #### rotate mol onto PC axis
-
-    #atom_masses \= np.sum(atom_masses)
-
-    origin = np.average(atom_coords, axis=0, weights=atom_masses)
-
-    print("origin", origin)
-
-    ###
-
-    std_d = np.std(atom_coords, axis=0)
-
-    dist = 2 * np.sqrt(np.product(std_d[1:]))
-
-    print("length scale" , dist)
-
-    #####
-
-    #build to model by growing a web around the molecule
-
-    #place initial bead
-
-    closest_atom = np.argmin(np.linalg.norm( origin - atom_coords,axis = 1))
-
-    beads = np.array([atom_coords[closest_atom]])
-
-    #need to count atoms that are accounted for by this bead
-
-    atoms_dist_to_beads = np.array([np.linalg.norm(b - beads, axis=1) for b in atom_coords])
-
-    unaccounted = np.min(atoms_dist_to_beads, axis=1) > dist
-
-    unaccounted_atom_pos = atom_coords[unaccounted]
-
-    unaccounted_atom_pos_old = len(unaccounted_atom_pos) +1
-
-    unnaccounted_atom_nums = atomic_nums[unaccounted]
-
-    bead_n =1
-
-    connections = []
-
-    while ( len(unaccounted_atom_pos) > 0 )  :
-
-        #find which bead has the most atoms around it in a radius of 2*R>x>R
-
-        unnaccounted_ns = []
-
-        new_beads_positions = []
-
-        for  bead_for_connection,connection_bead_position in enumerate(beads):
-
-            #select the bead that has the most
-
-            #print("connection bead",bead_for_connection)
-
-            fit_params = Parameters()
-
-            fit_params.add("p0", value=0, min=- np.pi , max=+ np.pi , vary=True)
-            fit_params.add("p1", value=0, min=- np.pi / 2, max=+ np.pi / 2, vary=True)
-
-            out = minimize(residual2, fit_params, args=(unnaccounted_atom_nums, unaccounted_atom_pos, beads,dist,connection_bead_position),
-                       method='nelder',options={'maxiter':10000})
-
-            #add this bead to the total
-
-            initial_vector = basis[0]
-
-            # next apply interpolated rotations
-
-            p0 = out.params['p0']
-            p1 = out.params['p1']
-
-            r0_ab = Rotation.from_rotvec(-1 * basis[1] * p0)
-            r1_ab = Rotation.from_rotvec(-1 * basis[2] * p1)
-
-            initial_vector = r0_ab.apply(initial_vector)
-
-            initial_vector = r1_ab.apply(initial_vector)
-
-            new_bead_location = dist * initial_vector + connection_bead_position
-
-            temp_beads = np.vstack((beads, new_bead_location))
-
-            #next remove atoms that are now accounted for
-
-            atoms_dist_to_beads = np.array([np.linalg.norm(b - temp_beads, axis=1) for b in unaccounted_atom_pos])
-
-            unaccounted = np.min(atoms_dist_to_beads, axis=1) > dist
-
-            unnaccounted_ns.append(np.sum(unaccounted))
-
-            new_beads_positions.append(new_bead_location)
-
-        ### decide on which connection lead to the greatest increase in new atoms accounted for
-
-        #check if all the numbers of accounted atoms are the same if so break
-
-        if (len(beads) > 2) & (np.all( unnaccounted_ns == unnaccounted_ns[0] )):
-
-            break
-
-        ###
-
-        best = unnaccounted_ns.index(min(unnaccounted_ns))
-
-        new_bead = new_beads_positions[best]
-
-        beads = np.vstack((beads,new_bead))
-
-        atoms_dist_to_beads = np.array([np.linalg.norm(b - beads, axis=1) for b in unaccounted_atom_pos])
-
-        unaccounted = np.min(atoms_dist_to_beads, axis=1) > dist
-
-        unaccounted_atom_pos_old = len(unaccounted_atom_pos)
-
-        unaccounted_atom_pos = unaccounted_atom_pos[unaccounted]
-
-        unnaccounted_atom_nums = unnaccounted_atom_nums[unaccounted]
-
-        bead_n +=1
-
-    print("n beads = " , bead_n)
-    '''
-    G = nx.Graph()
-    for c in connections:
-
-        G.add_edge(c[0],c[1])
-
-    nx.draw(G)
-    '''
-    return beads, dist
 
 def match_to_substructures(mol):
 
@@ -583,24 +445,31 @@ def make_and_align_smiles(smiles):
 
 property = 'b_ratio'
 
-property = "RPS"
+#property = "RPS"
 
-df = pd.read_csv("/Users/alexanderhowarth/Desktop/total_b_ratio.csv").dropna(subset=property)
+#df = pd.read_csv("/Users/alexanderhowarth/Desktop/total_b_ratio.csv").dropna(subset=property)
+
+
+df = pd.read_csv("/Users/alexanderhowarth/Desktop/total_b_ratio.csv")
 
 df = df.drop_duplicates(subset='Compound_ID')
-
-print(len(df))
 
 code = "TRB0005601 series"
 
 df = df[df["STRUCTURE_COMMENT"] == code]
+
+df =df.dropna(subset = [property])
+
+
 
 def MF_RF(ind1,df):
 
     IC50 = []
     smiles = []
 
-    for i, r in tqdm.tqdm([ (i,r) for i,r in df.iterrows()]):
+    print(df)
+
+    for i,r in df.iterrows():
 
         print(r['Compound_ID'])
 
@@ -609,6 +478,8 @@ def MF_RF(ind1,df):
         smiles.append(r['Smiles'])
 
     mols = [ standardize(Chem.MolFromSmiles(m)) for m in smiles ]
+
+
 
     descs = [AllChem.GetMorganFingerprintAsBitVect(m, 2, 1024) for m in mols]
 
@@ -662,8 +533,15 @@ def MF_RF(ind1,df):
     plt.show()
     plt.close()
 
+    train_fps = np.array([i for i in df_soap['SOAPs']])
+
+    rf = RandomForestRegressor(n_estimators=10, random_state=42)
+
+    rf.fit(train_fps, df_soap['IC50'])
+
+    pickle.dump(rf,open("5601_bratio_model.p","wb"))
+
 
 MF_RF(0,df)
-
 
 
