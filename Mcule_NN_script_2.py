@@ -112,12 +112,6 @@ def embed_mol_n(mol,n):
 
         AllChem.MMFFOptimizeMolecule(mol, maxIters=1000)
 
-        # AllChem.MMFFOptimizeMolecule(mol, maxIters=10000)
-
-        #mol = rdmolops.RemoveHs(mol)
-
-        #Chem.rdMolAlign.AlignMolConformers(mol)
-
         return mol
 
     else:
@@ -666,12 +660,12 @@ def Physchem_filter(prob_props, ref_props):
 
 # make the reference molecule and representation
 
-database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
+#database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
 
 scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_scaler.p"),"rb"))
 
-#database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
-#scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_scaler.p"),"rb"))
+database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
+scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_scaler.p"),"rb"))
 
 db_length = len(open(database, "r").readlines())
 
@@ -694,6 +688,11 @@ ref_props = Physchem_calc(ref_mol)
 for i in ref_confIDs:
 
     atomic_mass, positions, atomic_numbers, atom_aromatic = make_mol(ref_mol, i)
+
+
+    print(atomic_numbers)
+
+    quit()
 
     direction_vector, origin = find_basis(positions, atomic_mass)
 

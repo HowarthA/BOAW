@@ -27,7 +27,7 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.SimDivFilters import rdSimDivPickers
 import pickle
 
-folder = "/Users/alexanderhowarth/Desktop/5061_abs_charge_all_thresh_0.2/"
+folder = "/Users/alexanderhowarth/Desktop/5061_NN_search/"
 
 
 NNs = []
@@ -152,9 +152,6 @@ def compare_same_dataset(centre_fp, fps):
 
     sims = DataStructs.BulkTanimotoSimilarity(centre_fp, fps)
 
-
-
-
     kde = gaussian_kde(sims).pdf(x)
 
     return x, kde, sims
@@ -162,6 +159,7 @@ def compare_same_dataset(centre_fp, fps):
 input_file = folder + "/NNs_.sdf"
 
 hit_smiles = "O=C(C1OC2=C(C=CC=C2)C=1)NS(C1[C@@H]2C[C@@H](CC2)C1)(=O)=O"
+
 Id_code ="TRB0005061"
 
 initial_hit = standardize(Chem.MolFromSmiles(hit_smiles))
