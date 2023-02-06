@@ -37,8 +37,9 @@ maxproc = 600
 
 R = 2.1943998623787615 * 2
 
-
 database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
+
+scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_scaler.p"), "rb"))
 
 p_file = os.path.expanduser("~/mcule_sample_boundaries.p")
 
@@ -92,6 +93,7 @@ def embed_mol_2d(mol):
     mol = AllChem.Compute2DCoords(mol)
 
     return mol
+
 
 def standardize(mol):
     clean_mol = rdMolStandardize.Cleanup(mol)
@@ -558,9 +560,11 @@ def make_and_align_smiles(smiles):
 
     return hmols_1
 
+
 def Physchem_calc(m):
 
     return np.array([Descriptors.MolWt(m), Crippen.MolLogP(m) , rdMolDescriptors.CalcNumHBA(m),rdMolDescriptors.CalcNumHBD(m), rdMolDescriptors.CalcFractionCSP3(m)])
+
 
 def Physchem_filter(prob_props,ref_props):
 
@@ -597,6 +601,7 @@ def make_graph(bead_n, bead_connections, encodings):
 # make the reference molecule and representation
 
 ref_mol = Chem.MolFromSmiles("O=C(NS(=O)(=O)C1C[C@@H]2CC[C@H]1C2)c1cc2ccccc2o1")
+
 ref_mol = standardize(ref_mol)
 
 #ref_mol = embed_mol_sdf(ref_mol)
@@ -607,11 +612,15 @@ ref_beads, ref_bead_connections,bead_n = make_beads(ref_mol,R)
 
 ref_rep = make_representation(ref_beads,ref_mol,R)
 
+ref_rep = scaler.transform(ref_rep)
+
 ref_encodings = bead_encode(ref_rep)
 
 ref_G = make_graph(bead_n,ref_bead_connections,ref_encodings)
 
 ref_hash = nx.weisfeiler_lehman_graph_hash(ref_G,node_attr='encoding')
+
+print("ref_hash" ,ref_hash)
 
 ref_rep =make_representation(ref_beads,ref_mol,R)
 
@@ -679,6 +688,8 @@ def SearchWorker(args):
 
                 prob_rep = make_representation(prob_beads, m, R)
 
+                prob_rep = scaler.transform(prob_rep)
+
                 prob_encodings = bead_encode(prob_rep)
 
                 prob_G = make_graph(prob_bead_n, prob_bead_connections, prob_encodings)
@@ -704,48 +715,49 @@ def SearchWorker(args):
 
         print("none found " + str(proc))
 
-db_length = len(open(database, "r").readlines())
+if __name__ == '__main__':
 
-inds = np.arange(0, db_length)
+    db_length = len(open(database, "r").readlines())
 
-chunks = np.array_split(inds, maxproc)
+    inds = np.arange(0, db_length)
 
-args = []
+    chunks = np.array_split(inds, maxproc)
 
-c = 0
+    args = []
 
-for i, j in enumerate(chunks):
-    args.append((ref_mol, j, c))
+    c = 0
 
-    c += 1
+    for i, j in enumerate(chunks):
 
-# SearchWorker(args[0])
+        args.append((ref_mol, j, c))
 
-import multiprocessing
+        c += 1
 
-p = multiprocessing.Pool()
+    import multiprocessing
 
-# defaults to os.cpu_count() workers
-p.map_async(SearchWorker, args)
+    p = multiprocessing.Pool()
 
-# perform process for each i in i_list
-p.close()
-p.join()
+    # defaults to os.cpu_count() workers
+    p.map_async(SearchWorker, args)
 
-# Wait for all child processes to close.
+    # perform process for each i in i_list
+    p.close()
+    p.join()
+
+    # Wait for all child processes to close.
 
 
-'''
+    '''
+    
+    from pathos import multiprocessing
+    
+    pool = multiprocessing.Pool(maxproc)
+    
+    for i, j in enumerate(chunks):
+        args[i] = (ref_mol, j,  i)
+    
+    results_ = pool.map(SearchWorker, args)
+    
+    '''
 
-from pathos import multiprocessing
-
-pool = multiprocessing.Pool(maxproc)
-
-for i, j in enumerate(chunks):
-    args[i] = (ref_mol, j,  i)
-
-results_ = pool.map(SearchWorker, args)
-
-'''
-
-#SearchWorker((ref_mol, np.arange(0,10000) ,0  ))
+    #SearchWorker((ref_mol, np.arange(0,10000) ,0  ))

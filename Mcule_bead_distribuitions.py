@@ -427,50 +427,6 @@ def make_representation(beads, m,bead_dist):
 
     ind1 = 0
 
-    '''
-    for b, ds, v in zip(beads, bead_dists_to_atoms, vectors_to_atoms):
-        weights = np.exp(-1 * ( ds / bead_dist) ** 2)
-
-        # make a vector of charges
-        charge_vector = np.sum((weights * charges)[:, None] * v, axis=0)
-
-        representation[ind1, 0, :] = charge_vector
-
-        # could have a dipole vector too
-        # dipole_vectors = np.sum(weights * charges * dist,axis = 1)
-
-        # mass vectors
-        mass_vectors = np.sum((weights * atom_masses)[:, None] * v, axis=0)
-
-        representation[ind1, 1, :] = mass_vectors
-
-        # logP vectors
-
-        logP_vectors = np.sum((weights * logP_c)[:, None] * v, axis=0)
-
-        representation[ind1, 2, :] = logP_vectors
-
-        # MR vectors - steric descriptors
-
-        MR_vector = np.sum((weights * MR_c)[:, None], axis=0)
-
-        representation[ind1, 3, :] = MR_vector
-
-        # ASA - surface area descriptors
-
-        ASA_vector = np.sum((weights * ASA)[:, None], axis=0)
-
-        representation[ind1, 4, :] = ASA_vector
-
-        # TPSA - surface area descriptors
-
-        TPSA_vector = np.sum((weights * TPSA)[:, None], axis=0)
-
-        representation[ind1, 5, :] = TPSA_vector
-
-        ind1 += 1
-    '''
-
     for b, ds in zip(beads, bead_dists_to_atoms):
 
         weights = 1 / (1 + np.exp(2 * (ds - bead_dist/2)))
@@ -479,7 +435,6 @@ def make_representation(beads, m,bead_dist):
         #make a vector of charges
 
         charge_vector = np.sum(weights * charges)
-
 
         representation[ind1, 0] = charge_vector
 

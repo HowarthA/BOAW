@@ -26,7 +26,7 @@ def genConf(m):
     ###########
     nmol = 1
     rms = -1
-    rmspost = 1.0
+    rmspost = 4
     irmsd = "Not"
     threads = 1
     efilter = "Y"
@@ -229,10 +229,3 @@ def postrmsd(n, diz2, rmspost):
         o.AddConformer(n.GetConformer(id))
 
     return o, confidlist,enval
-
-
-
-ref_mol = Chem.MolFromSmiles("CN(C)CCCN(C(=O)c1cccc(C(F)(F)F)c1)c1nc2ccc(F)cc2s1")
-
-
-genConf(ref_mol)

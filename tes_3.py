@@ -577,7 +577,7 @@ def align_residual(params, coords_1, coords_2, rep1, rep2):
 
     temp = np.abs(rep1[:, np.newaxis, :] + rep2) - 0.5 * np.abs(rep1[:, np.newaxis, :] - rep2)
 
-    residual = (res_sum -  np.sum(weights[:, :, None] * temp))/res_sum
+    residual = (res_sum -  np.sum(weights[:, :, None] * temp* 0.5))/res_sum
 
     return residual
 

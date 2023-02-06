@@ -5,10 +5,10 @@ from scipy.stats import gaussian_kde
 from sklearn.preprocessing import StandardScaler
 from matplotlib import pyplot as plt
 
-beads = []
 
 folder = "beads_dist/"
 
+beads= [ ]
 for f in sorted(os.listdir(folder)):
 
     if f.endswith(".p"):
@@ -19,20 +19,21 @@ for f in sorted(os.listdir(folder)):
             beads.extend(b)
 
 beads = np.array(beads)
-
 pickle.dump(beads, open("beads_dist/BOAW_Mcule_beads.p","wb"))
-quit()
+
 scaler = StandardScaler()
 
 scaler.fit(beads)
 
-pickle.dump(scaler, open("BOAW_Mcule_scaler_3.7.p","wb"))
+pickle.dump(scaler, open("BOAW_Mcule_scaler.p","wb"))
 
+scaler = pickle.load(open("BOAW_Mcule_scaler.p","rb"))
 
-quit()
-print(np.shape(beads))
+beads = pickle.load( open("beads_dist/BOAW_Mcule_beads.p","rb"))
 
-quit()
+beads = scaler.transform(beads)
+
+pickle.dump(beads, open("beads_dist/BOAW_Mcule_scaled_beads.p","wb"))
 
 titles = ["abs charge", "masses", "logP", "MrC", "ASA", "TPSA", "Aromatic", "HBD", "HBA"]
 

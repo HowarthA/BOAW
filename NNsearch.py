@@ -791,10 +791,6 @@ for i, j in enumerate(chunks):
 
     c +=1
 
-
-SearchWorker(args[0])
-
-'''
 p = multiprocessing.Pool()
 
 # defaults to os.cpu_count() workers
@@ -803,5 +799,4 @@ p.map_async(SearchWorker,  args )
 # perform process for each i in i_list
 p.close()
 p.join()
-'''
 
