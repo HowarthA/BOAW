@@ -18,7 +18,7 @@ mols = []
 inchi_keys = set()
 similarity = []
 
-for m in Chem.SDMolSupplier("/Users/alexanderhowarth/Desktop/5061_search_1/NNs_.sdf"):
+for m in Chem.SDMolSupplier("/Users/alexanderhowarth/Desktop/TRB705_morfNN/NNs_.sdf"):
 
     m = standardize(m)
 
@@ -57,7 +57,7 @@ d2d = rdMolDraw2D.MolDraw2DSVG(n_per_row * scale, n_rows * scale, scale, scale)
 
 img = d2d.DrawMolecules(list(mols[0:100]), legends = [ str(round(s,3)) for s in similarity])
 
-pic = open("/Users/alexanderhowarth/Desktop/5061_search_1/NNs.svg", "w+")
+pic = open("/Users/alexanderhowarth/Desktop/NNs.svg", "w+")
 
 d2d.FinishDrawing()
 

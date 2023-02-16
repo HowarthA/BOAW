@@ -4,36 +4,50 @@ import numpy as np
 from scipy.stats import gaussian_kde
 from sklearn.preprocessing import StandardScaler
 from matplotlib import pyplot as plt
+import os
 
-
-folder = "beads_dist/"
+folder = os.path.expanduser( "~/beads_dist/")
 
 beads= [ ]
+
 for f in sorted(os.listdir(folder)):
 
     if f.endswith(".p"):
 
-        b = [i for i in pickle.load(open(folder + f, "rb"))]
+        #b = pickle.load(open(folder + f, "rb"))
 
-        if len(b) > 9:
-            beads.extend(b)
+        pickle_ = pickle.load(open(folder + f, "rb"))
+
+        for m in pickle_:
+
+            if len(m) > 0:
+
+                beads.extend(m)
+
+        #b = [i for i in pickle.load(open(folder + f, "rb"))]
 
 beads = np.array(beads)
-pickle.dump(beads, open("beads_dist/BOAW_Mcule_beads.p","wb"))
+
+print(np.shape(beads))
+
+#pickle.dump(beads, open( folder +  "BOAW_Mcule_morfeus_beads.p","wb"))
 
 scaler = StandardScaler()
 
 scaler.fit(beads)
 
-pickle.dump(scaler, open("BOAW_Mcule_scaler.p","wb"))
+pickle.dump(scaler, open(folder + "BOAW_Mcule_morfeus_scaler.p","wb"))
 
-scaler = pickle.load(open("BOAW_Mcule_scaler.p","rb"))
 
-beads = pickle.load( open("beads_dist/BOAW_Mcule_beads.p","rb"))
+quit()
+
+scaler = pickle.load(open(folder + "BOAW_Mcule_morfeus_scaler.p","rb"))
+
+beads = pickle.load( open(folder + "BOAW_Mcule_morfeus_beads.p","rb"))
 
 beads = scaler.transform(beads)
 
-pickle.dump(beads, open("beads_dist/BOAW_Mcule_scaled_beads.p","wb"))
+pickle.dump(beads, open(folder + "BOAW_Mcule_morfeus_scaled_beads.p","wb"))
 
 titles = ["abs charge", "masses", "logP", "MrC", "ASA", "TPSA", "Aromatic", "HBD", "HBA"]
 
@@ -88,4 +102,4 @@ for c in range(np.shape(beads)[1]):
 
     plt.close()
 
-pickle.dump(boundaries, open("mcule_sample_boundaries.p", "wb"))
+pickle.dump(boundaries, open(folder + "mcule_sample_morfeus_boundaries.p", "wb"))

@@ -11,41 +11,39 @@ from rdkit import Chem
 from rdkit.Chem import rdDepictor
 rdDepictor.SetPreferCoordGen(True)
 from rdkit.Chem import AllChem
-import pandas as pd
 import tqdm
-from matplotlib import pyplot as plt
 from rdkit.Chem.MolStandardize import rdMolStandardize
-from sklearn.metrics import r2_score
 from rdkit import DataStructs
-from sklearn.metrics import mean_squared_error
 from rdkit.Chem import rdMolDescriptors
 from sklearn import decomposition
-from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
-import networkx as nx
 from rdkit.Chem import rdmolops
 from rdkit.Geometry import Point3D
 from rdkit.Chem import Descriptors3D
-import copy
-from  scipy.stats import gaussian_kde
 import pickle
 import os
 from rdkit.Chem import Descriptors
+
+from morfeus import XTB
+from morfeus import Dispersion
+from morfeus import SASA
+
+import multiprocessing
+
+
 # df = pd.read_csv("/Users/alexanderhowarth/Documents/G3BP1/TRB000"+str(code)+"/G3BP1_"+str(code)+"_grouped.csv")
 
 # df['suramin_normalised_mean'] = np.abs(df['suramin_normalised_mean'])
 
 R = 2.1943998623787615 * 2
 
-maxproc = 600
+
 
 def embed_mol_sdf(mol):
 
     mol = rdmolops.AddHs(mol)
 
-    #AllChem.EmbedMolecule(mol)
-
-
+    AllChem.EmbedMolecule(mol)
 
     try:
 
@@ -132,7 +130,7 @@ def make_mol(mol):
         atom_aromatic.append(atom.GetIsAromatic())
         symbols.append(atom.GetSymbol())
 
-    return np.array(atomic_mass), np.array(positions), np.array(atomic_numbers),symbols,atom_aromatic
+    return np.array(atomic_mass), np.array(positions), np.array(atomic_numbers),atom_aromatic
 
 
 def write_mol_xyz(mol,coords_,kmeans):
@@ -232,7 +230,7 @@ def make_beads(m, dist ):
 
     basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
-    atom_masses, atom_coords, atomic_nums,symbols, all_aromatic = make_mol(m)
+    atom_masses, atom_coords, atomic_nums, all_aromatic = make_mol(m)
 
     # atom_masses \= np.sum(atom_masses)
 
@@ -381,9 +379,8 @@ def match_to_substructures(mol):
 
     return is_donor_atom,is_acceptor_atom
 
-def make_representation(beads, m,bead_dist):
-
-    atom_masses, atom_coords, atomic_nums,symbols,atom_aromatic = make_mol(m)
+def make_representation(beads, m, bead_dist):
+    atom_masses, atom_coords, atomic_nums, atom_aromatic = make_mol(m)
 
     #####
 
@@ -398,15 +395,60 @@ def make_representation(beads, m,bead_dist):
     charges = []
 
     for a in m.GetAtoms():
-        charges.append(abs(float(a.GetProp("_GasteigerCharge"))))
+        charges.append(float(a.GetProp("_GasteigerCharge")))
+
+    xtb = XTB(atomic_nums, atom_coords)
+
+
+    from matplotlib import pyplot as plt
+
+    c_ = xtb.get_charges()
+
+    c = np.array([ c_[k] for k in sorted(c_.keys())])
+
+    charges = (c + np.array(charges))/2
+
+    dispersion = Dispersion(atomic_nums, atom_coords)
+
+    atom_p_int_ = dispersion.atom_p_int
+
+    atom_p_int= np.array([ atom_p_int_[k] for k in sorted(atom_p_int_.keys())])
+
+    atom_areas_ = dispersion.atom_areas
+
+    atom_areas= np.array([ atom_areas_[k] for k in sorted(atom_areas_.keys())])
+
+    nucleophilicity_ = xtb.get_fukui('nucleophilicity')
+
+    nucleophilicity = np.array([ nucleophilicity_[k] for k in sorted(nucleophilicity_.keys())])
+
+    electrophilicity_ = xtb.get_fukui('electrophilicity')
+
+    electrophilicity = np.array([ electrophilicity_[k] for k in sorted(electrophilicity_.keys())])
+
+    sasa = SASA(atomic_nums, atom_coords)
+
+    atom_sa = sasa.atom_areas
+
+    atom_sa = np.array([ atom_sa[k] for k in sorted(atom_sa.keys())])
+
+    atom_vo = sasa.atom_volumes
+
+    atom_vo = np.array([ atom_vo[k] for k in sorted(atom_vo.keys())])
+
+    electo_avalibility =  electrophilicity * atom_sa
+
+    nucleo_avalibility = nucleophilicity * atom_sa
+
+    #atom_sa = sasa.atom_volumes
 
     charges = np.array(charges)
 
     CC = np.array(rdMolDescriptors._CalcCrippenContribs(m))
 
-    ASA = np.array([k for k in rdMolDescriptors._CalcLabuteASAContribs(m)[0]])
+    #ASA = np.array([k for k in rdMolDescriptors._CalcLabuteASAContribs(m)[0]])
 
-    TPSA = np.array(rdMolDescriptors._CalcTPSAContribs(m))
+    #TPSA = np.array(rdMolDescriptors._CalcTPSAContribs(m))
 
     logP_c = CC[:, 0]
 
@@ -414,7 +456,7 @@ def make_representation(beads, m,bead_dist):
 
     ###### next make the representation
 
-    representation = np.zeros((len(beads), 9))
+    representation = np.zeros((len(beads), 15))
 
     # find distances to atoms from beads
 
@@ -422,19 +464,27 @@ def make_representation(beads, m,bead_dist):
 
     # find normalised vectors to atoms from beads
 
-    #vectors_to_atoms = np.array([b - atom_coords for b in beads])
-    #vectors_to_atoms /= np.linalg.norm(vectors_to_atoms, axis=2)[:, :, None]
+    # vectors_to_atoms = np.array([b - atom_coords for b in beads])
+    # vectors_to_atoms /= np.linalg.norm(vectors_to_atoms, axis=2)[:, :, None]
 
     ind1 = 0
 
+    atom_inds = np.arange(len(atom_coords))
+
     for b, ds in zip(beads, bead_dists_to_atoms):
 
-        weights = 1 / (1 + np.exp(2 * (ds - bead_dist/2)))
+        weights = 1 / (1 + np.exp(2 * (ds - bead_dist / 2)))
 
-        #weights = 1 / (1 + np.exp(  (ds -  bead_dist)))
-        #make a vector of charges
+        counts = ds < bead_dist/2
 
-        charge_vector = np.sum(weights * charges)
+        if np.sum(counts) == 0:
+
+            counts = ds ==np.min(ds)
+
+        # weights = 1 / (1 + np.exp(  (ds -  bead_dist)))
+        # make a vector of charges
+
+        charge_vector = np.var(weights * charges)
 
         representation[ind1, 0] = charge_vector
 
@@ -448,29 +498,33 @@ def make_representation(beads, m,bead_dist):
 
         # logP vectors
 
-        logP_vectors = np.sum(weights * logP_c)
+        logP_vectors = np.average(  logP_c , weights = weights)
 
         representation[ind1, 2] = logP_vectors
 
         # MR vectors - steric descriptors
 
-        MR_vector = np.sum(weights * MR_c)
+        MR_vector = np.average(  MR_c,weights = weights)
 
         representation[ind1, 3] = MR_vector
 
         # ASA - surface area descriptors
 
-        ASA_vector = np.sum(weights * ASA)
+        #ASA_vector = np.sum(weights * ASA)
 
-        representation[ind1, 4] = ASA_vector
+        #representation[ind1, 4] = ASA_vector
+
+        representation[ind1,4] = np.sum(atom_sa * weights)
 
         # TPSA - surface area descriptors
 
-        TPSA_vector = np.sum(weights * TPSA)
+        #TPSA_vector = np.sum(weights * TPSA)
 
-        representation[ind1, 5] = TPSA_vector
+        #representation[ind1, 5] = TPSA_vector
 
-        #aromatic
+        representation[ind1,5] = np.sum(atom_vo * weights)
+
+        # aromatic
 
         Aromatic_vector = np.sum(weights * atom_aromatic)
 
@@ -484,14 +538,25 @@ def make_representation(beads, m,bead_dist):
 
         # HBA
 
-        HBA_vector = np.sum(weights * is_acceptor_atom)
+        HDA_vector = np.sum(weights * is_acceptor_atom)
 
-        representation[ind1, 8] = HBA_vector
+        representation[ind1, 8] = HDA_vector
 
+        representation[ind1, 9] = np.sum(weights* atom_p_int)
+
+        representation[ind1, 10] = np.sum(weights*atom_areas)
+
+        representation[ind1,11] = np.min(counts * nucleophilicity)
+
+        representation[ind1,12] = np.min(counts * electrophilicity)
+
+        representation[ind1,13] = np.min(counts * nucleo_avalibility)
+
+        representation[ind1,14] = np.min(counts * electo_avalibility)
 
         ind1 += 1
 
-    return representation
+    return np.array(representation)
 
 def train_RF(train_descs,test_descs, train_IC50,test_IC50):
 
@@ -510,7 +575,6 @@ def train_RF(train_descs,test_descs, train_IC50,test_IC50):
     test_pred = rf.predict(test_fps)[0]
 
     return test_pred, test_y
-
 
 def make_and_align_smiles(smiles):
     p = AllChem.ETKDGv2()
@@ -568,9 +632,13 @@ def make_and_align_smiles(smiles):
 
 #####
 #
+
 database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
 
 #database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
+
+
+###### have to run export MKL_NUM_THREADS=1 and export OMP_NUM_THREADS=1 before running
 
 
 def Search(args):
@@ -598,6 +666,7 @@ def Search(args):
         s = s.split()[0]
 
         try:
+
             mol = Chem.MolFromSmiles(s)
 
             mol = standardize(mol)
@@ -606,18 +675,13 @@ def Search(args):
 
                 mol = None
 
+            else:
+
+                mol = embed_mol_sdf(mol)
+
         except:
 
             mol = None
-
-
-        if mol:
-
-            mol = embed_mol_sdf(mol)
-
-        else:
-
-            embed = None
 
         if mol:
 
@@ -631,13 +695,11 @@ def Search(args):
 
             train_descs = make_representation(beads_, mol,R)
 
-            total_beads.append([ r for r in  train_descs[0]])
+            total_beads.append( train_descs)
 
             #now look at kde of columns of this matrix
 
-    titles = ["abs charge" , "masses","logP","MrC","ASA","TPSA","Aromatic","HBD","HBA"]
-
-    total_beads = np.array(total_beads)
+    #total_beads = np.array(total_beads)
 
     pickle.dump(total_beads, open("beads_proc" + str(proc) + ".p", "wb"))
 
@@ -687,36 +749,44 @@ def estimate_R(s_file, n_samples):
 
     return np.average(np.array(Rs)[~np.isnan(Rs)])
 
-db_length = len(open(database, "r").readlines())
 
-inds = np.arange(0, db_length)
+if __name__ == '__main__':
 
-chunks = np.array_split(inds, maxproc)
+    print("hello")
 
-args = []
+    chunk_n = 600
 
-c = 0
+    db_length = len(open(database, "r").readlines())
 
-for i, j in enumerate(chunks):
+    inds = np.arange(0, db_length)
 
-    args.append(( j, c))
+    chunks = np.array_split(inds, chunk_n)
 
-    c +=1
+    args = []
 
-import multiprocessing
+    c = 0
 
-p = multiprocessing.Pool()
+    for i, j in enumerate(chunks):
 
-# defaults to os.cpu_count() workers
-p.map_async(Search,  args )
+        args.append(( j, c))
 
-# perform process for each i in i_list
-p.close()
-p.join()
+        c +=1
 
-#first work out average distance:
+    p = multiprocessing.Pool(processes=60)
 
-#R = estimate_R(db_,n_samples)
+    # defaults to os.cpu_count() workers
+    p.map_async(Search, args)
+
+    # perform process for each i in i_list
+    p.close()
+    p.join()
+
+    # perform process for each i in i_list
+
+
+    #first work out average distance:
+
+    #R = estimate_R(db_,n_samples)
 
 
 

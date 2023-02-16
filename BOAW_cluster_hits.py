@@ -80,24 +80,8 @@ def write_mol_xyz(mol, kmeans, title, cid):
     f.close()
 
 
-def embed_mol(s):
-    mol = Chem.MolFromSmiles(s)
-    mol = standardize(mol)
+def embed_mol(mol):
 
-    if mol:
-
-        mol, confIDs, energies = genConf(mol)
-
-        return (mol, confIDs)
-
-    else:
-
-        return None
-
-
-def embed_mol_smiles(s):
-    mol = Chem.MolFromSmiles(s)
-    mol = standardize(mol)
     mol = rdmolops.AddHs(mol)
 
     if mol:
@@ -120,7 +104,7 @@ def embed_mol_smiles(s):
 
             n_conformers = 300
 
-        confIDs = AllChem.EmbedMultipleConfs(mol, 50)
+        confIDs = AllChem.EmbedMultipleConfs(mol, 2)
 
         AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=10000)
 
@@ -271,10 +255,7 @@ def match_to_substructures(mol):
     return is_donor_atom, is_acceptor_atom
 
 
-def make_representation(args):
-
-    total_beads , m, bead_dist, confids = args
-
+def make_representation(total_beads, m, bead_dist, confids):
     reps = []
 
     for i, beads in zip(confids, total_beads):
@@ -388,7 +369,6 @@ def make_representation(args):
 
     return np.array(reps)
 
-
 def make_representation_morfeus(total_beads, m, bead_dist,confids):
 
     reps = []
@@ -413,8 +393,6 @@ def make_representation_morfeus(total_beads, m, bead_dist,confids):
             charges.append(float(a.GetProp("_GasteigerCharge")))
 
         xtb = XTB(atomic_nums, atom_coords)
-
-        from matplotlib import pyplot as plt
 
         c_ = xtb.get_charges()
 
@@ -483,6 +461,8 @@ def make_representation_morfeus(total_beads, m, bead_dist,confids):
 
         ind1 = 0
 
+        atom_inds = np.arange(len(atom_coords))
+
         for b, ds in zip(beads, bead_dists_to_atoms):
 
             weights = 1 / (1 + np.exp(2 * (ds - bead_dist / 2)))
@@ -491,8 +471,9 @@ def make_representation_morfeus(total_beads, m, bead_dist,confids):
 
             if np.sum(counts) == 0:
 
-                counts = ds == np.min(ds)
+                counts = ds ==np.min(ds)
 
+            # weights = 1 / (1 + np.exp(  (ds -  bead_dist)))
             # make a vector of charges
 
             charge_vector = np.var(weights * charges)
@@ -519,7 +500,7 @@ def make_representation_morfeus(total_beads, m, bead_dist,confids):
 
             representation[ind1, 3] = MR_vector
 
-            # morfeus Surface area - surface area descriptors
+            # ASA - surface area descriptors
 
             #ASA_vector = np.sum(weights * ASA)
 
@@ -527,7 +508,7 @@ def make_representation_morfeus(total_beads, m, bead_dist,confids):
 
             representation[ind1,4] = np.sum(atom_sa * weights)
 
-            # morfeus volume - surface volume descriptors
+            # TPSA - surface area descriptors
 
             #TPSA_vector = np.sum(weights * TPSA)
 
@@ -543,9 +524,9 @@ def make_representation_morfeus(total_beads, m, bead_dist,confids):
 
             # HDB
 
-            HBD_vector = np.sum(weights * is_donor_atom)
+            HDB_vector = np.sum(weights * is_donor_atom)
 
-            representation[ind1, 7] = HBD_vector
+            representation[ind1, 7] = HDB_vector
 
             # HBA
 
@@ -553,32 +534,23 @@ def make_representation_morfeus(total_beads, m, bead_dist,confids):
 
             representation[ind1, 8] = HDA_vector
 
-
-            #morfeus dispersion descriptors
-
             representation[ind1, 9] = np.sum(weights* atom_p_int)
 
             representation[ind1, 10] = np.sum(weights*atom_areas)
-
-            #
 
             representation[ind1,11] = np.min(counts * nucleophilicity)
 
             representation[ind1,12] = np.min(counts * electrophilicity)
 
+            representation[ind1,13] = np.max(counts * nucleo_avalibility)
 
-            #
-
-            representation[ind1,13] = np.min(counts * nucleo_avalibility)
-
-            representation[ind1,14] = np.min(counts * electo_avalibility)
+            representation[ind1,14] = np.max(counts * electo_avalibility)
 
             ind1 += 1
 
         reps.append(representation)
 
     return np.array(reps)
-
 
 def make_beads(m, confIDs, dist, counter):
     basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
@@ -833,14 +805,14 @@ def allign_reps(beads_1, beads_2, rep1, rep2):
                    args=(beads_1, beads_2, rep1, rep2),
                    method='nelder')
 
-    #initial_res = align_residual(fit_params, beads_1, beads_2, rep1, rep2)
+    # initial_res = align_residual(fit_params, beads_1, beads_2, rep1, rep2)
 
     aligned_beads_2 = transform(beads_2, out.params['p0'], out.params['p1'], out.params['x'], out.params['y'],
                                 out.params['z'])
 
     final_res = align_residual(fit_params, beads_1, aligned_beads_2, rep1, rep2)
 
-    #final_res = ( initial_res - final_res ) / initial_res
+    # final_res = ( initial_res - final_res ) / initial_res
 
     return aligned_beads_2, final_res, out.params
 
@@ -865,59 +837,42 @@ def train_RF(train_descs, test_descs, train_IC50, test_IC50):
 
 def AlignWorker(args):
 
-    pairs = args[0]
-    conf_beads_ = args[1]
-    conf_reps_ = args[2]
+    pair = args[0]
 
-    res = np.zeros(len(pairs))
+    conf_beads_1 = args[1][pair[0]]
+    conf_beads_2 = args[1][pair[1]]
 
-    p = 0
+    conf_reps_1 = args[2][pair[0]]
+    conf_reps_2 = args[2][pair[1]]
 
-    for pair in tqdm.tqdm(pairs):
+    res_ = np.zeros((len( conf_beads_1 ) , len(conf_beads_2)))
 
-        i = pair[0]
-        j = pair[1]
+    i = 0
 
-        if i != j:
-            i_conf_beads, j_conf_beads = conf_beads_[i], conf_beads_[j]
-            i_conf_rep, j_conf_rep = conf_reps_[i], conf_reps_[j]
+    for  rep1i , beads1i in zip(conf_reps_1,conf_beads_1):
 
-            temp_align_beads, residual, out_params = allign_reps(i_conf_beads, j_conf_beads, i_conf_rep, j_conf_rep)
+        j=0
 
-            res[p] = residual
+        for rep2j , beads2j in zip(conf_reps_2,conf_beads_2):
 
-        p+=1
+            temp_align_beads, residual, out_params = allign_reps(beads1i, beads2j, rep1i, rep2j)
 
-    print(os.getpid(), "finished")
+            res_[ i,j] = residual
 
-    return res
+            j+=1
+
+        i+=1
+
+    return np.min(res_)
 
 
 if __name__ == '__main__':
 
-    os.system("export MKL_NUM_THREADS=1")
-    os.system("export OMP_NUM_THREADS=1")
+    ### input mols as a list of smiles or sdf files
 
-    maxproc = 5
 
-    property = 'b_ratio'
+    mols_ = [ standardize(m) for m in Chem.SDMolSupplier("/Users/alexanderhowarth/Desktop/YAP.sdf")]
 
-    df = pd.read_csv("/Users/alexanderhowarth/Desktop/total_b_ratio.csv").dropna(subset=property)
-
-    df = df.drop_duplicates(subset='Compound_ID')
-
-    code = "TRB0005601 series"
-
-    df = df[df["STRUCTURE_COMMENT"] == code]
-
-    IC50 = []
-    smiles = []
-
-    for i, r in tqdm.tqdm([(i, r) for i, r in df.iterrows()]):
-
-        IC50.append(r[property])
-
-        smiles.append(r['Smiles'])
 
     mols = []
 
@@ -925,11 +880,9 @@ if __name__ == '__main__':
 
     n_conformers = 0
 
-    print("embedding mol")
+    for m in tqdm.tqdm(mols_):
 
-    for s in tqdm.tqdm(smiles):
-
-        mol, confIDs = embed_mol_smiles(s)
+        mol, confIDs = embed_mol(m)
 
         mols.append(mol)
 
@@ -961,45 +914,13 @@ if __name__ == '__main__':
 
     conf_beads = []
 
-    print("making reps")
-
     for i, m in tqdm.tqdm(enumerate(mols)):
 
         beads = make_beads(m, confs[i], R, i)
 
+        rep = make_representation_morfeus(beads, m, R, confs[i])
+
         total_beads.append(beads)
-
-    args = []
-
-    for i , m  in enumerate(mols):
-
-        args.append((total_beads[i] , m , R , confs[i]))
-
-    ######
-
-
-    to_do = ['' for i in args]
-
-    res = ['' for i in args]
-
-    pool = mp.Pool(maxproc)
-
-    for i, a in enumerate(args):
-        to_do[i] = pool.apply_async(make_representation_morfeus, a)
-
-    start_time = time.time()
-
-    for i in range(len(args)):
-        res[i] = to_do[i].get()
-
-    pool.close()
-
-    pool.join()
-
-    i = 0
-
-    for rep ,beads  in zip(res,total_beads):
-
         total_reps.append(rep)
 
         for r in rep:
@@ -1011,12 +932,9 @@ if __name__ == '__main__':
             all_mol_inds.append(i)
 
         for b in beads:
-
             conf_beads.append(b)
 
             all_beads.extend([b_ for b_ in b])
-
-        i+=1
 
     # normalise the reps
 
@@ -1029,153 +947,30 @@ if __name__ == '__main__':
     for i, mol_reps in enumerate(total_reps):
 
         for j, mol_r in enumerate(mol_reps):
-
-            total_reps[i][j] = scaler.transform(mol_r )
+            
+            total_reps[i][j] = scaler.transform(mol_r)
 
     ###### find reference by all on all alignment
 
-    '''
     chunk_number = 8
 
-    pairs_of_confs = np.array(list(itertools.product(np.arange(n_conformers), np.arange(n_conformers))))
+    pairs_of_mols = np.array(list(itertools.product(np.arange(len(mols)), np.arange(len(mols)))))
 
-    chunks = np.array_split(pairs_of_confs, chunk_number)
+    args = [[(c, total_beads, total_reps)] for c in pairs_of_mols]
 
-    args = [[(c, conf_beads, conf_reps)] for c in chunks]
+    print(len(args))
 
     p = mp.Pool()
 
     # defaults to os.cpu_count() workers
 
-    maxproc = 8
+    maxproc = 5
 
     to_do = ['' for i in args]
 
-    res = ['' for i in args]
+    print("running alignments", print(len(to_do)))
 
-    pool = mp.Pool(maxproc)
-
-    for i, a in enumerate(args):
-        to_do[i] = pool.apply_async(AlignWorker, a)
-
-
-    start_time = time.time()
-
-    for i in range(len(args)):
-        res[i] = to_do[i].get()
-
-    pool.close()
-
-    pool.join()
-
-    stop_time = time.time()
-
-    print(stop_time - start_time, "n cpus = 8", "n alignments = ", n_conformers*n_conformers)
-
-    # build Alignment matrix
-
-    residuals = np.zeros((n_conformers, n_conformers))
-
-    for c, r in zip(chunks, res):
-
-        for pair, r_ in zip(c, r):
-            residuals[pair[0], pair[1]] = r_
-            residuals[pair[1], pair[0]] = r_
-
-    pickle.dump(residuals, open("residuals.p", "wb"))
-    residuals = pickle.load(open("residuals.p", "rb"))
-
-    print(residuals)
-
-    current_ref = np.argmin(np.sum(residuals, axis=1))
-
-    print("ref", current_ref)
-
-    res_dev = np.std(residuals[current_ref, :])
-
-    print("res stddev", res_dev)
-
-    total_aligned_beads = []
-    total_aligned_reps = []
-
-    all_alligned_beads = []
-
-    all_mol_inds = np.array(all_mol_inds)
-
-    i = 0
-
-    for i_beads, i_rep in tqdm.tqdm(zip(total_beads, total_reps), total=len(total_beads)):
-        ####find the confermer of mol i that has the lowest residual to the reference
-        #### if it is low enough align it
-
-        w_mol = np.where(all_mol_inds == i)[0]
-
-        arg_min_res = np.argmin(residuals[current_ref, w_mol])
-        min_res = residuals[current_ref, arg_min_res]
-
-        #### next check if this is lower than the stdev if true do this alignment
-
-        temp_align_beads, residual, out_params = allign_reps(conf_beads[current_ref],
-                                                             conf_beads[w_mol[arg_min_res]], conf_reps[current_ref],
-                                                             conf_reps[w_mol[arg_min_res]])
-
-        write_xyz(temp_align_beads, conf_beads[current_ref], 2)
-
-        total_aligned_beads.append(temp_align_beads)
-
-        total_aligned_reps.append(conf_reps[w_mol[arg_min_res]])
-
-        i += 1
-
-    ######'''
-
-    ##### find reference utiling tvserky similarity
-
-    ###### find best reference
-
-    # start by finding mol with highest similarity to all the others
-
-    # use tversky similarity so that bits in the reference but not in the probs are not counted
-
-    sims = np.zeros((len(mols), len(mols)))
-
-    fps = [AllChem.GetMorganFingerprintAsBitVect(mol_i, 2, 2048) for mol_i in mols]
-
-    for j, mol_j in enumerate(mols):
-        mol_j_fp = AllChem.GetMorganFingerprintAsBitVect(mol_j, 2, 2048)
-
-        s = DataStructs.BulkTverskySimilarity(mol_j_fp, fps, a=1, b=0)
-
-        sims[j, :] = s
-
-    simsum = np.sum(sims, axis=0)
-
-    max_sim = np.argmax(simsum)
-
-    chunk_number = 8
-
-    conf_inds = np.arange(n_conformers)
-
-    conf_inds = conf_inds[all_mol_inds != max_sim]
-
-    print("found ref", max_sim, )
-
-    pairs_of_confs = np.array(list(itertools.product(confs[max_sim], conf_inds)))
-
-    chunks = np.array_split(pairs_of_confs, chunk_number)
-
-    args = [[(c, conf_beads, conf_reps)] for c in chunks]
-
-    p = mp.Pool()
-
-    # defaults to os.cpu_count() workers
-
-
-    print("doing alignment")
-
-    to_do = ['' for i in args]
-
-    res = ['' for i in args]
+    res_vector = ['' for i in args]
 
     pool = mp.Pool(maxproc)
 
@@ -1185,7 +980,7 @@ if __name__ == '__main__':
     start_time = time.time()
 
     for i in range(len(args)):
-        res[i] = to_do[i].get()
+        res_vector[i] = to_do[i].get()
 
     pool.close()
 
@@ -1193,132 +988,42 @@ if __name__ == '__main__':
 
     stop_time = time.time()
 
-    print(stop_time - start_time, "n cpus = " ,maxproc, "n alignments = ", len(confs[max_sim]) * n_conformers)
+    print(stop_time - start_time, "n cpus = ",maxproc, "n alignments = ", n_conformers*n_conformers)
 
     # build Alignment matrix
 
-    residuals = np.zeros((len(confs[max_sim]), n_conformers))
+    distance_matrix = np.zeros((len(mols), len(mols)))
 
-    for c, r in zip(chunks, res):
+    for c, r in zip(pairs_of_mols, res_vector):
 
-        for pair, r_ in zip(c, r):
+        print(c,r)
 
-            residuals[pair[0], pair[1]] = r_
+        distance_matrix[c[0], c[1]] = r
+        distance_matrix[c[1], c[0]] = r
 
-    # build Alignment matrix
+    pickle.dump(distance_matrix, open("residuals.p", "wb"))
+    distance_matrix = pickle.load(open("residuals.p", "rb"))
 
-    residuals_ = residuals[ :,all_mol_inds != max_sim ]
-    current_ref = np.argmin(np.sum(residuals_, axis=1))
-
-    current_ref = np.where(all_mol_inds == max_sim)[0][current_ref]
-
-    # res_dev = np.std(residuals[current_ref, :])
-
-    # print("res stddev", res_dev)
-
-    total_aligned_beads = []
-    total_aligned_reps = []
-
-    all_alligned_beads = []
-
-    all_mol_inds = np.array(all_mol_inds)
-
-    i = 0
-
-    for i_beads, i_rep in tqdm.tqdm(zip(total_beads, total_reps), total=len(total_beads)):
-        ####find the confermer of mol i that has the lowest residual to the reference
-        #### if it is low enough align it
-
-        w_mol = np.where(all_mol_inds == i)[0]
-
-        arg_min_res = np.argmin(residuals[current_ref, w_mol])
-
-        min_res = residuals[current_ref, arg_min_res]
-
-        #### next check if this is lower than the stdev if true do this alignment
-
-        temp_align_beads, residual, out_params = allign_reps(conf_beads[current_ref],
-                                                             conf_beads[w_mol[arg_min_res]], conf_reps[current_ref],
-                                                             conf_reps[w_mol[arg_min_res]])
-
-        total_aligned_beads.append(temp_align_beads)
-
-        total_aligned_reps.append(conf_reps[w_mol[arg_min_res]])
-
-        i += 1
-
-    ####draw a picture of these beads
-
-    total = 0
-
-    max_beads = 0
-
-    for beads in total_aligned_beads:
-
-        total += len(beads)
-
-        if len(beads) > max_beads:
-            max_beads += (len(beads) - max_beads)
-
-    all_aligned_beads = []
-
-    all_aligned_beads_mol_index = []
-
-    m_count = 0
-
-    for beads in total_aligned_beads:
-
-        for b in beads:
-            all_aligned_beads.append(b)
-
-            all_aligned_beads_mol_index.append(m_count)
-
-        m_count += 1
-
-    distance_matrix = np.zeros((len(all_aligned_beads), len(all_aligned_beads)))
-
-    for i, b_i in enumerate(all_aligned_beads):
-
-        i_mol = all_aligned_beads_mol_index[i]
-
-        for j, b_j in enumerate(all_aligned_beads):
-
-            j_mol = all_aligned_beads_mol_index[j]
-
-            if i == j:
-
-                distance_matrix[i, j] = 0
-                distance_matrix[j, i] = 0
-
-            elif i_mol == j_mol:
-
-                distance_matrix[i, j] = 1000000000000
-
-                distance_matrix[j, i] = 1000000000000
-
-            elif i < j:
-
-                d = np.linalg.norm(b_i - b_j)
-
-                distance_matrix[i, j] = d
-
-                distance_matrix[j, i] = d
-
-    '''
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
 
     # We convert the correlation matrix to a distance matrix before performing
     # hierarchical clustering using Ward's linkage.
-
-    corr = np.exp(- distance_matrix )
-
+    from scipy.stats import spearmanr
     from scipy.cluster import hierarchy
     from scipy.spatial.distance import squareform
-    from collections import defaultdict
 
+    corr = np.exp(- distance_matrix)
+
+    # Ensure the correlation matrix is symmetric
+    corr = (corr + corr.T) / 2
+    np.fill_diagonal(corr, 1)
+
+    # We convert the correlation matrix to a distance matrix before performing
+    # hierarchical clustering using Ward's linkage.
+    distance_matrix = 1 - np.abs(corr)
     dist_linkage = hierarchy.ward(squareform(distance_matrix))
     dendro = hierarchy.dendrogram(
-        dist_linkage, ax=ax1, leaf_rotation=90,
+        dist_linkage, ax=ax1, leaf_rotation=90
     )
     dendro_idx = np.arange(0, len(dendro["ivl"]))
 
@@ -1329,125 +1034,4 @@ if __name__ == '__main__':
     ax2.set_yticklabels(dendro["ivl"])
     fig.tight_layout()
     plt.show()
-    '''
 
-    from sklearn.cluster import AgglomerativeClustering
-
-    AggCluster = AgglomerativeClustering(distance_threshold=R / 2, n_clusters=None, affinity='precomputed',
-                                         linkage='average'
-                                         )
-
-    clusters = AggCluster.fit(distance_matrix)
-
-    cluster_ids = clusters.labels_
-
-
-    n_clusters = len(set(cluster_ids))
-
-    print("n clusters", n_clusters)
-
-    c_count = 0
-
-    for beads in total_aligned_beads:
-
-        c_ids = []
-
-        for b in beads:
-            c_ids.append(cluster_ids[c_count])
-
-            c_count += 1
-
-    for b, id in zip(all_aligned_beads, cluster_ids):
-        plt.plot(b[0], b[1], "o", color=colors[id % 10], alpha=0.5)
-
-    plt.show()
-
-    ###next sort all the representations the same way
-
-    sorted_reps = []
-
-    count = 0
-
-    for rep in total_aligned_reps:
-
-        sorted_reps.append(np.zeros((n_clusters, 15)))
-
-        for r in rep:
-            sorted_reps[-1][cluster_ids[count]] = r
-
-            count += 1
-
-    sorted_reps = np.array(sorted_reps)
-
-    sorted_reps = [s.flatten() for s in sorted_reps]
-
-    Rs = []
-
-    av_vs = []
-
-    av_ps = []
-
-    std_ps = []
-
-    for i in range(len(mols)):
-
-        train_IC50 = IC50[:i] + IC50[min(i + 1, len(IC50)):]
-
-        test_IC50 = IC50[i]
-
-        train_descs = sorted_reps[:i] + sorted_reps[min(i + 1, len(mols)):]
-
-        test_descs = [sorted_reps[i]]
-
-        test_vs = []
-
-        test_ps = []
-
-        for j in range(0, 2):
-            # make predictions
-
-            test_pred, test_val = train_RF(train_descs, test_descs, train_IC50, test_IC50)
-
-            test_ps.append(test_pred)
-
-            test_vs.append(test_val)
-
-        std_ps.append(np.std(np.abs(np.array(test_vs) - np.array(test_ps))))
-        av_vs.append(test_vs[0])
-        av_ps.append(np.mean(test_ps, axis=0))
-
-    r2 = r2_score(av_vs, av_ps)
-
-    reg = LinearRegression().fit(np.array([[a] for a in av_vs]), av_ps)
-
-    stddev_v = np.std(av_vs)
-
-    rmse = mean_squared_error(av_vs, av_ps)
-
-    rmse_med = mean_squared_error(av_vs, [np.median(av_vs) for j in av_vs])
-
-    std_errors = np.std([abs(v - p) for v, p in zip(av_vs, av_ps)])
-
-    plt.title("Beads on a string RF Model " + code + " n = " + str(len(IC50)))
-    plt.plot(av_vs, av_ps, "o",
-             label="R2 = " + str(round(r2, 2)) + "\nstd = " + str(round(std_errors, 2)) + "\nRMSE = " + str(
-                 round(rmse, 2)) + "\nRMSE/stddev(values) = " + str(
-                 round(rmse / stddev_v, 2)) + "\nRMSE/RMSE(no skill model) = " + str(round(rmse / rmse_med, 2)),
-             alpha=0.8)
-    plt.plot([min(av_vs), max(av_vs)], [min(av_vs), max(av_vs)], linestyle=":", color='grey')
-
-    plt.plot([min(av_vs), max(av_vs)],
-             [reg.coef_ * min(av_vs) + reg.intercept_, reg.coef_ * max(av_vs) + reg.intercept_],
-             color="C0")
-
-    plt.legend(
-
-    )
-
-    plt.xlabel("Experimental")
-    plt.ylabel("Predicted")
-
-    # plt.savefig(folder + "/" + r['ID'] + ".png")
-
-    plt.show()
-    plt.close()

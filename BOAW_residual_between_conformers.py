@@ -28,6 +28,7 @@ from morfeus import XTB
 from morfeus import Dispersion
 from morfeus import SASA
 
+
 # df = pd.read_csv("/Users/alexanderhowarth/Documents/G3BP1/TRB000"+str(code)+"/G3BP1_"+str(code)+"_grouped.csv")
 # df['suramin_normalised_mean'] = np.abs(df['suramin_normalised_mean'])
 
@@ -36,10 +37,6 @@ from morfeus import SASA
 basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
 R = 2 * 2.1943998623787615
-
-os.system("export MKL_NUM_THREADS=1")
-os.system("export OMP_NUM_THREADS=1")
-
 
 def standardize(mol):
     clean_mol = rdMolStandardize.Cleanup(mol)
@@ -70,29 +67,17 @@ def write_mol_xyz(mol, kmeans, title,cid):
     f.close()
 
 
-def embed_mol(mol):
+def embed_mol(s):
+
+    mol = Chem.MolFromSmiles(s)
+
+    mol = standardize(mol)
+
+    mol = rdmolops.AddHs(mol)
 
     if mol:
 
-        rot_bonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(mol)
-
-        mol = Chem.AddHs(mol)
-
-        # Generate conformers
-
-        if rot_bonds < 8:
-
-            n_conformers = 50
-
-        elif (rot_bonds >= 8) and (rot_bonds <= 12):
-
-            n_conformers = 200
-
-        else:
-
-            n_conformers = 300
-
-        confIDs = AllChem.EmbedMultipleConfs(mol, n_conformers)
+        confIDs = AllChem.EmbedMultipleConfs(mol, 10)
 
         AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=10000)
 
@@ -109,53 +94,22 @@ def embed_mol(mol):
         return None
 
 
-def embed_mol_n(mol,n):
-
-    if mol:
-
-        mol = Chem.AddHs(mol)
-
-        # Generate conformers
-
-        AllChem.EmbedMolecule(mol)
-
-        AllChem.MMFFOptimizeMolecule(mol, maxIters=1000)
-
-        return mol
-
-    else:
-
-        return None
-
-def embed_mol_smiles(s):
+def embed_mol_smiles_single_conf(s):
 
     mol = Chem.MolFromSmiles(s)
     mol = standardize(mol)
+
     mol = rdmolops.AddHs(mol)
 
     if mol:
 
-        rot_bonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(mol)
+        AllChem.EmbedMolecule(mol)
 
-        mol = Chem.AddHs(mol)
+        try:
+            AllChem.MMFFOptimizeMolecule(mol, maxIters=100)
 
-        # Generate conformers
-
-        if rot_bonds < 8:
-
-            n_conformers = 50
-
-        elif (rot_bonds >= 8) and (rot_bonds <= 12):
-
-            n_conformers = 200
-
-        else:
-
-            n_conformers = 300
-
-        confIDs = AllChem.EmbedMultipleConfs(mol, n_conformers)
-
-        AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=10000)
+        except:
+            return None
 
         # AllChem.MMFFOptimizeMolecule(mol, maxIters=10000)
 
@@ -163,54 +117,10 @@ def embed_mol_smiles(s):
 
         #Chem.rdMolAlign.AlignMolConformers(mol)
 
-        return (mol, confIDs)
-
+        return mol
     else:
 
         return None
-
-def embed_mol_Inchi(s):
-
-    mol = Chem.MolFromInchi(s)
-    mol = standardize(mol)
-    mol = rdmolops.AddHs(mol)
-
-    if mol:
-
-        rot_bonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(mol)
-
-        mol = Chem.AddHs(mol)
-
-        # Generate conformers
-
-        if rot_bonds < 8:
-
-            n_conformers = 50
-
-        elif (rot_bonds >= 8) and (rot_bonds <= 12):
-
-            n_conformers = 200
-
-        else:
-
-            n_conformers = 300
-
-        confIDs = AllChem.EmbedMultipleConfs(mol, n_conformers)
-
-        AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=10000)
-
-        # AllChem.MMFFOptimizeMolecule(mol, maxIters=10000)
-
-        #mol = rdmolops.RemoveHs(mol)
-
-        #Chem.rdMolAlign.AlignMolConformers(mol)
-
-        return (mol, confIDs)
-
-    else:
-
-        return None
-
 
 
 def make_mol(mol, id):
@@ -244,6 +154,7 @@ def find_basis(coordinates, masses):
 
     return direction_vector, origin
 
+
 def change_basis(m,  direction_vector, origin,c):
 
     coordinates = m.GetConformer(c).GetPositions()
@@ -268,7 +179,6 @@ def change_basis(m,  direction_vector, origin,c):
 
 
 def residual2(params, atomic_nums, unaccounted_atom_pos, beads, dist, connection_bead_position):
-
     basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
     # get initial vectors along z principle axis
@@ -627,9 +537,9 @@ def make_representation_morfeus(beads, m, bead_dist,i):
 
         representation[ind1,12] = np.min(counts * electrophilicity)
 
-        representation[ind1,13] = np.min(counts * nucleo_avalibility)
+        representation[ind1,13] = np.max(counts * nucleo_avalibility)
 
-        representation[ind1,14] = np.min(counts * electo_avalibility)
+        representation[ind1,14] = np.max(counts * electo_avalibility)
 
         ind1 += 1
 
@@ -641,49 +551,11 @@ def make_beads(m, confIDs, dist):
 
     t_beads = []
 
-    SSSR_ = Chem.GetSSSR(m)
-
-    SSSR = []
-
-    print(len(SSSR))
-
-    ring_atoms = []
-
-    for r in SSSR_:
-
-        SSSR.append([a for a  in r])
-
-        ring_atoms.extend([a for a  in r])
-
-    ring_atoms = list(set(ring_atoms))
-
-    print("ring atoms" , len(ring_atoms))
-
-    print(len(SSSR),SSSR)
-
     #### rotate mol onto PC axis
 
     for i in confIDs:
 
-        atom_masses_, atom_coords_, atomic_nums_, all_aromatic_ = make_mol(m, i)
-
-        ### fold rings into centre - duplicating atoms in multiple rings
-
-        atom_inds = np.arange(0,len(atom_coords_))
-
-        non_ring_atoms = list( set(atom_inds) - set(ring_atoms) )
-
-        atom_coords = atom_coords_[non_ring_atoms]
-        atom_masses = atom_masses_[non_ring_atoms]
-        atomic_nums = atomic_nums_[non_ring_atoms]
-
-        for r in SSSR:
-
-            atom_coords = np.concatenate( (atom_coords ,[np.mean(atom_coords_[r], axis=0) for i in r]))
-
-            atom_masses = np.concatenate((atom_masses, [atom_masses_[i] for i in r]))
-
-            atomic_nums = np.concatenate((atomic_nums, [atomic_nums_[i] for i in r]))
+        atom_masses, atom_coords, atomic_nums, all_aromatic = make_mol(m, i)
 
         # atom_masses \= np.sum(atom_masses)
 
@@ -693,9 +565,11 @@ def make_beads(m, confIDs, dist):
 
         atomic_nums = atomic_nums[w_]
 
-        #all_aromatic = all_aromatic[w_]
+        all_aromatic = all_aromatic[w_]
 
         atom_masses = atom_masses[w_]
+
+
 
         origin = np.average(atom_coords, weights=atom_masses, axis=0)
 
@@ -866,13 +740,9 @@ def align_residual(params, coords_1, coords_2, rep1, rep2):
 
     res_sum = np.sum(np.abs(rep1)) + np.sum(np.abs(rep2))
 
-    temp = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
+    temp = np.abs(rep1[:, np.newaxis, :] + rep2) - 0.5 * np.abs(rep1[:, np.newaxis, :] - rep2)
 
-    residual = (res_sum - np.sum(weights[:, :, None] * temp))/res_sum
-
-    temp = np.abs(rep1[:, np.newaxis, :] + rep2)
-
-    #residual = (res_sum - 2 * np.sum(weights[:, :, None] * temp))/res_sum
+    residual = (res_sum -  np.sum(weights[:, :, None] * temp))/res_sum
 
     return residual
 
@@ -904,11 +774,14 @@ def allign_reps(beads_1, beads_2, rep1, rep2):
     aligned_beads_2 = transform(beads_2, out.params['p0'], out.params['p1'], out.params['x'], out.params['y'],
                                 out.params['z'])
 
-    return aligned_beads_2, out.residual, out.params
+    final_res = align_residual(fit_params, beads_1, aligned_beads_2, rep1, rep2)
+
+    return aligned_beads_2, final_res, out.params
 
 
 def Physchem_calc(m):
-    return np.array([Descriptors.MolWt(m), Crippen.MolLogP(m), rdMolDescriptors.CalcNumHBA(m), rdMolDescriptors.CalcNumHBD(m),
+    return np.array(
+        [Descriptors.MolWt(m), Crippen.MolLogP(m), rdMolDescriptors.CalcNumHBA(m), rdMolDescriptors.CalcNumHBD(m),
          rdMolDescriptors.CalcFractionCSP3(m)])
 
 
@@ -928,236 +801,112 @@ def Physchem_filter(prob_props, ref_props):
          prob_props[4] < f_sp3_high]))
 
 
+def rep_sim(smiles1):
+
+    mol1, confIDs = embed_mol(smiles1  )
+
+    if mol1:
+
+        beads =  make_beads(mol1, confIDs, R)
+
+        reps = []
+
+        for i in confIDs:
+
+            rep1 = make_representation_morfeus(beads[i], mol1, R, i)
+            rep1 = scaler.transform(rep1)
+
+            reps.append(rep1)
+
+        res_c = np.ones((50,50))
+
+        #then align all pairs:
+
+        for c1 in confIDs:
+
+            for c2 in confIDs[c1:]:
+
+                aligned_beads, sim, params = allign_reps(beads[c1], beads[c2], reps[c1], reps[c2])
+
+                res_c[c1,c2] = sim
+                res_c[c2,c1] = sim
+
+    return np.mean(res_c) , np.std(res_c)
+
+
+
 # make the reference molecule and representation
 
 #database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
-
 #scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_morfeus_scaler.p"),"rb"))
 
 database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
-
 scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"),"rb"))
 
-db_length = len(open(database, "r").readlines())
+database = open(database, "r").readlines()
 
-#ref_mol, ref_confIDs = embed_mol_smiles("CNC(=O)c1ccc(S(=O)(=O)c2ccc(NC(=O)[C@@](C)(O)C(F)(F)F)c(Cl)c2)cc1")
+db_length = len(database)
 
-#ref_mol = Chem.MolFromMolFile(os.path.expanduser("705-der-pose1.sdf"), removeHs=False)
+os.system("export MKL_NUM_THREADS=1")
+os.system("export OMP_NUM_THREADS=1")
 
-#ref_confIDs = [0]
+average_std = 0
 
-ref_mol, ref_confIDs = embed_mol_smiles("CC[C@@]1(O)C(=O)OCc2c1cc1n(c2=O)Cc2cc3c(CN(C)C)c(O)ccc3nc2-1")
+old_average_std = 1
 
-#ref_mol, ref_confIDs = embed_mol(ref_mol)
 
-#ref_mol,ref_confIDs = embed_mol_Inchi("InChI=1S/C18H16ClF3N2O5S/c1-17(27,18(20,21)22)16(26)24-14-8-7-12(9-13(14)19)30(28,29)11-5-3-10(4-6-11)15(25)23-2/h3-9,27H,1-2H3,(H,23,25)(H,24,26)/t17-/m1/s1")
 
-##########
+old_average_std = 1
 
-# physchem filters
+average_mean= 0
 
-ref_props = Physchem_calc(ref_mol)
 
-##########
+loop = 0
 
-# ref_mol, ref_confIDs = embed_mol_smiles("CN(C)CCCN(C(=O)c1cccc(C(F)(F)F)c1)c1nc2ccc(F)cc2s1")
 
-'''
-for i in ref_confIDs:
 
-    atomic_mass, positions, atomic_numbers, atom_aromatic = make_mol(ref_mol, i)
+sample_n = 100
 
-    direction_vector, origin = find_basis(positions, atomic_mass)
+measured_stds = []
 
-    change_basis(ref_mol, direction_vector, origin, i)
-'''
+measured_means = [ ]
 
-# database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
 
-# database = "5601.smi"]
+while round(average_std,4) != round(old_average_std,4):
 
-ref_beads = make_beads(ref_mol, ref_confIDs, R)
+    print("loop", loop, "std" ,average_std ,"mean",average_mean, sample_n )
 
+    #make a sample of n pairs of molecules
 
-write_mol_xyz(ref_mol,ref_beads[0],"1408",0)
+    smiles_list = np.random.randint(0,db_length-1,sample_n)
 
-quit()
+    stds = np.ones(sample_n)
 
-ref_reps = []
+    means = np.ones(sample_n)
 
-for beads_, confid in zip(ref_beads, ref_confIDs):
+    p = 0
 
-    ref_rep_ = make_representation_morfeus(beads_, ref_mol, R, confid)
+    for s1 in tqdm.tqdm(smiles_list):
 
-    ref_rep_ = scaler.transform(ref_rep_)
+        sm1 = database[s1].split()[0]
 
-    ref_reps.append(ref_rep_)
+        std,mean = rep_sim(sm1)
 
-# database_sdf
+        stds[p] = std
 
-maxproc = 600
+        means[p] = mean
 
-threshold = 0.4
+        p+=1
 
-def SearchWorker(args):
-    i = 0
 
-    ref_mol = args[0]
+    measured_stds.extend(stds[ stds != np.nan ] )
+    measured_means.extend(means[stds != np.nan ])
 
-    inds = args[1]
+    old_average_std = copy.copy(average_std)
 
-    proc = args[2]
+    average_std = np.std(measured_stds )
 
-    s_file = open(database, "r")
+    average_mean = np.mean(measured_means)
 
-    while i < inds[0] - 1:
-        s_file.readline()
+    loop+=1
 
-        i += 1
-
-    NNs = []
-
-    for i in tqdm.tqdm(inds):
-
-        s = s_file.readline()
-
-        s = s.split()[0]
-
-        try:
-
-            prob_mol = Chem.MolFromSmiles(s)
-
-            prob_mol = standardize(prob_mol)
-
-
-        except:
-
-            prob_mol = None
-
-        if prob_mol:
-
-            ###### calculate some physchem properties for initial filters
-
-            prob_props = Physchem_calc(prob_mol)
-
-            if Physchem_filter(prob_props, ref_props):
-
-                ######
-
-                # embed this new mol
-
-                prob_mol = embed_mol_n(prob_mol,1 )
-
-            else:
-
-                prob_mol = None
-
-            if prob_mol:
-
-                # make beads
-
-                prob_beads = make_beads(prob_mol, [0], R)
-
-                #make rep
-
-                prob_rep = make_representation_morfeus(prob_beads[0], prob_mol, R,0)
-
-                prob_rep = scaler.transform(prob_rep)
-
-                #align beads to each set of ref_beads
-
-                res = []
-
-                for ref_beads_, ref_rep_ in zip(ref_beads, ref_reps):
-
-                    aligned_beads_2, final_res, params = allign_reps(ref_beads_, prob_beads[0], ref_rep_, prob_rep)
-
-                    res.append(final_res)
-
-                if np.min(res) < threshold:
-
-                    prob_mol.SetProp("_similarity", str(np.min(res)))
-
-                    NNs.append(prob_mol)
-
-                    print("found ", proc, len(NNs))
-                    
-
-                '''
-                minres = [10000, 0, 0]
-
-                for ref_beads_, ref_rep_,r_cid in zip(ref_beads, ref_reps,ref_confIDs):
-
-                    aligned_beads_2, final_res, params = allign_reps(ref_beads_, prob_beads[0], ref_rep_, prob_rep)
-
-                    if final_res < minres[0]:
-
-                        minres = [ final_res,r_cid,0]
-
-                if minres[0] < threshold:
-
-                    prob_mol.SetProp("_similarity", str(minres[0]))
-
-                    print("found ", proc,minres[0] )
-
-                    with Chem.SDWriter("output_" + str(proc) + "_"+str(i) + ".sdf") as w:
-
-                        #print("writing to "  "output_" + str(proc) + ".sdf", len(NNs), proc)
-
-                        w.write( prob_mol ,confId = minres[2] )
-
-                        w.write( ref_mol ,confId = minres[1] )
-
-                '''
-
-    if len(NNs) > 0:
-
-        with Chem.SDWriter("output_" + str(proc) + ".sdf") as w:
-
-            print("writing to "  "output_" + str(proc) + ".sdf", len(NNs), proc)
-
-            for mol_ in NNs + [ref_mol]:
-                w.write(mol_)
-
-    else:
-
-        print("none found " + str(proc))
-
-
-
-inds = np.arange(0, db_length)
-
-chunks = np.array_split(inds, maxproc)
-
-args = []
-
-c = 0
-
-for i, j in enumerate(chunks):
-
-    args.append((ref_mol, j, c))
-
-    c += 1
-
-import multiprocessing
-
-p = multiprocessing.Pool()
-
-# defaults to os.cpu_count() workers
-p.map_async(SearchWorker, args)
-
-# perform process for each i in i_list
-p.close()
-p.join()
-
-# Wait for all child processes to close.
-
-'''
-from pathos import multiprocessing
-pool = multiprocessing.Pool(maxproc)
-
-for i, j in enumerate(chunks):
-    args[i] = (ref_mol, j,  i)
-
-results_ = pool.map(SearchWorker, args)
-'''

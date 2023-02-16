@@ -27,26 +27,41 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.SimDivFilters import rdSimDivPickers
 import pickle
 
-folder = "/Users/alexanderhowarth/Desktop/5061_NN_search/"
+folder = "/Users/alexanderhowarth/Desktop/TRB0001408/"
 
+ref_mol = Chem.MolFromMolFile(os.path.expanduser("/Users/alexanderhowarth/Desktop/TRB0001408/sdfbrowserexport-8NFPWHU1.sdf"), removeHs=False)
+
+hit_smiles = Chem.MolToSmiles(ref_mol)
+
+print(hit_smiles)
+
+quit()
+
+Id_code ="TRB00001408"
 
 NNs = []
 
 for f in os.listdir(folder):
 
-    if f.endswith(".sdf"):
+    if f.startswith("output_"):
 
         print(f)
 
-        try:
 
-            for m in SDMolSupplier(folder + f):
 
-                NNs.append(m)
+        for m in SDMolSupplier(folder + f):
 
-        except:
+            m.SetProp("_file" , f)
 
-            print("bad file" , f)
+            sim = m.GetProp("_similarity")
+
+            m.SetProp("_similarity",sim.replace("[","").replace("]",""))
+
+            NNs.append(m)
+
+            break
+
+
 
 print(len(NNs))
 
@@ -158,9 +173,6 @@ def compare_same_dataset(centre_fp, fps):
 
 input_file = folder + "/NNs_.sdf"
 
-hit_smiles = "O=C(C1OC2=C(C=CC=C2)C=1)NS(C1[C@@H]2C[C@@H](CC2)C1)(=O)=O"
-
-Id_code ="TRB0005061"
 
 initial_hit = standardize(Chem.MolFromSmiles(hit_smiles))
 

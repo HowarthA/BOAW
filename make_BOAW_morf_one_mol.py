@@ -37,10 +37,6 @@ basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
 R = 2 * 2.1943998623787615
 
-os.system("export MKL_NUM_THREADS=1")
-os.system("export OMP_NUM_THREADS=1")
-
-
 def standardize(mol):
     clean_mol = rdMolStandardize.Cleanup(mol)
     parent_clean_mol = rdMolStandardize.FragmentParent(clean_mol)
@@ -268,7 +264,6 @@ def change_basis(m,  direction_vector, origin,c):
 
 
 def residual2(params, atomic_nums, unaccounted_atom_pos, beads, dist, connection_bead_position):
-
     basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
     # get initial vectors along z principle axis
@@ -641,49 +636,11 @@ def make_beads(m, confIDs, dist):
 
     t_beads = []
 
-    SSSR_ = Chem.GetSSSR(m)
-
-    SSSR = []
-
-    print(len(SSSR))
-
-    ring_atoms = []
-
-    for r in SSSR_:
-
-        SSSR.append([a for a  in r])
-
-        ring_atoms.extend([a for a  in r])
-
-    ring_atoms = list(set(ring_atoms))
-
-    print("ring atoms" , len(ring_atoms))
-
-    print(len(SSSR),SSSR)
-
     #### rotate mol onto PC axis
 
     for i in confIDs:
 
-        atom_masses_, atom_coords_, atomic_nums_, all_aromatic_ = make_mol(m, i)
-
-        ### fold rings into centre - duplicating atoms in multiple rings
-
-        atom_inds = np.arange(0,len(atom_coords_))
-
-        non_ring_atoms = list( set(atom_inds) - set(ring_atoms) )
-
-        atom_coords = atom_coords_[non_ring_atoms]
-        atom_masses = atom_masses_[non_ring_atoms]
-        atomic_nums = atomic_nums_[non_ring_atoms]
-
-        for r in SSSR:
-
-            atom_coords = np.concatenate( (atom_coords ,[np.mean(atom_coords_[r], axis=0) for i in r]))
-
-            atom_masses = np.concatenate((atom_masses, [atom_masses_[i] for i in r]))
-
-            atomic_nums = np.concatenate((atomic_nums, [atomic_nums_[i] for i in r]))
+        atom_masses, atom_coords, atomic_nums, all_aromatic = make_mol(m, i)
 
         # atom_masses \= np.sum(atom_masses)
 
@@ -693,9 +650,11 @@ def make_beads(m, confIDs, dist):
 
         atomic_nums = atomic_nums[w_]
 
-        #all_aromatic = all_aromatic[w_]
+        all_aromatic = all_aromatic[w_]
 
         atom_masses = atom_masses[w_]
+
+
 
         origin = np.average(atom_coords, weights=atom_masses, axis=0)
 
@@ -866,13 +825,9 @@ def align_residual(params, coords_1, coords_2, rep1, rep2):
 
     res_sum = np.sum(np.abs(rep1)) + np.sum(np.abs(rep2))
 
-    temp = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
+    temp = np.abs(rep1[:, np.newaxis, :] + rep2) - 0.5 * np.abs(rep1[:, np.newaxis, :] - rep2)
 
-    residual = (res_sum - np.sum(weights[:, :, None] * temp))/res_sum
-
-    temp = np.abs(rep1[:, np.newaxis, :] + rep2)
-
-    #residual = (res_sum - 2 * np.sum(weights[:, :, None] * temp))/res_sum
+    residual = (res_sum -  np.sum(weights[:, :, None] * temp))/res_sum
 
     return residual
 
@@ -904,11 +859,14 @@ def allign_reps(beads_1, beads_2, rep1, rep2):
     aligned_beads_2 = transform(beads_2, out.params['p0'], out.params['p1'], out.params['x'], out.params['y'],
                                 out.params['z'])
 
-    return aligned_beads_2, out.residual, out.params
+    final_res = align_residual(fit_params, beads_1, aligned_beads_2, rep1, rep2)
+
+    return aligned_beads_2, final_res, out.params
 
 
 def Physchem_calc(m):
-    return np.array([Descriptors.MolWt(m), Crippen.MolLogP(m), rdMolDescriptors.CalcNumHBA(m), rdMolDescriptors.CalcNumHBD(m),
+    return np.array(
+        [Descriptors.MolWt(m), Crippen.MolLogP(m), rdMolDescriptors.CalcNumHBA(m), rdMolDescriptors.CalcNumHBD(m),
          rdMolDescriptors.CalcFractionCSP3(m)])
 
 
@@ -930,15 +888,8 @@ def Physchem_filter(prob_props, ref_props):
 
 # make the reference molecule and representation
 
-#database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
-
-#scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_morfeus_scaler.p"),"rb"))
-
-database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
 
 scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"),"rb"))
-
-db_length = len(open(database, "r").readlines())
 
 #ref_mol, ref_confIDs = embed_mol_smiles("CNC(=O)c1ccc(S(=O)(=O)c2ccc(NC(=O)[C@@](C)(O)C(F)(F)F)c(Cl)c2)cc1")
 
@@ -946,23 +897,18 @@ db_length = len(open(database, "r").readlines())
 
 #ref_confIDs = [0]
 
-ref_mol, ref_confIDs = embed_mol_smiles("CC[C@@]1(O)C(=O)OCc2c1cc1n(c2=O)Cc2cc3c(CN(C)C)c(O)ccc3nc2-1")
 
-#ref_mol, ref_confIDs = embed_mol(ref_mol)
+os.system("export MKL_NUM_THREADS=1")
+os.system("export OMP_NUM_THREADS=1")
 
-#ref_mol,ref_confIDs = embed_mol_Inchi("InChI=1S/C18H16ClF3N2O5S/c1-17(27,18(20,21)22)16(26)24-14-8-7-12(9-13(14)19)30(28,29)11-5-3-10(4-6-11)15(25)23-2/h3-9,27H,1-2H3,(H,23,25)(H,24,26)/t17-/m1/s1")
+ref_mol, ref_confIDs = embed_mol_Inchi("InChI=1S/C18H16ClF3N2O5S/c1-17(27,18(20,21)22)16(26)24-14-8-7-12(9-13(14)19)30(28,29)11-5-3-10(4-6-11)15(25)23-2/h3-9,27H,1-2H3,(H,23,25)(H,24,26)/t17-/m1/s1")
 
 ##########
 
 # physchem filters
 
-ref_props = Physchem_calc(ref_mol)
-
 ##########
 
-# ref_mol, ref_confIDs = embed_mol_smiles("CN(C)CCCN(C(=O)c1cccc(C(F)(F)F)c1)c1nc2ccc(F)cc2s1")
-
-'''
 for i in ref_confIDs:
 
     atomic_mass, positions, atomic_numbers, atom_aromatic = make_mol(ref_mol, i)
@@ -970,22 +916,16 @@ for i in ref_confIDs:
     direction_vector, origin = find_basis(positions, atomic_mass)
 
     change_basis(ref_mol, direction_vector, origin, i)
-'''
 
 # database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
 
-# database = "5601.smi"]
+# database = "5601.smi"
 
 ref_beads = make_beads(ref_mol, ref_confIDs, R)
 
-
-write_mol_xyz(ref_mol,ref_beads[0],"1408",0)
-
-quit()
-
 ref_reps = []
 
-for beads_, confid in zip(ref_beads, ref_confIDs):
+for beads_, confid in tqdm.tqdm(zip(ref_beads, ref_confIDs)):
 
     ref_rep_ = make_representation_morfeus(beads_, ref_mol, R, confid)
 
@@ -993,171 +933,5 @@ for beads_, confid in zip(ref_beads, ref_confIDs):
 
     ref_reps.append(ref_rep_)
 
-# database_sdf
-
-maxproc = 600
-
-threshold = 0.4
-
-def SearchWorker(args):
-    i = 0
-
-    ref_mol = args[0]
-
-    inds = args[1]
-
-    proc = args[2]
-
-    s_file = open(database, "r")
-
-    while i < inds[0] - 1:
-        s_file.readline()
-
-        i += 1
-
-    NNs = []
-
-    for i in tqdm.tqdm(inds):
-
-        s = s_file.readline()
-
-        s = s.split()[0]
-
-        try:
-
-            prob_mol = Chem.MolFromSmiles(s)
-
-            prob_mol = standardize(prob_mol)
-
-
-        except:
-
-            prob_mol = None
-
-        if prob_mol:
-
-            ###### calculate some physchem properties for initial filters
-
-            prob_props = Physchem_calc(prob_mol)
-
-            if Physchem_filter(prob_props, ref_props):
-
-                ######
-
-                # embed this new mol
-
-                prob_mol = embed_mol_n(prob_mol,1 )
-
-            else:
-
-                prob_mol = None
-
-            if prob_mol:
-
-                # make beads
-
-                prob_beads = make_beads(prob_mol, [0], R)
-
-                #make rep
-
-                prob_rep = make_representation_morfeus(prob_beads[0], prob_mol, R,0)
-
-                prob_rep = scaler.transform(prob_rep)
-
-                #align beads to each set of ref_beads
-
-                res = []
-
-                for ref_beads_, ref_rep_ in zip(ref_beads, ref_reps):
-
-                    aligned_beads_2, final_res, params = allign_reps(ref_beads_, prob_beads[0], ref_rep_, prob_rep)
-
-                    res.append(final_res)
-
-                if np.min(res) < threshold:
-
-                    prob_mol.SetProp("_similarity", str(np.min(res)))
-
-                    NNs.append(prob_mol)
-
-                    print("found ", proc, len(NNs))
-                    
-
-                '''
-                minres = [10000, 0, 0]
-
-                for ref_beads_, ref_rep_,r_cid in zip(ref_beads, ref_reps,ref_confIDs):
-
-                    aligned_beads_2, final_res, params = allign_reps(ref_beads_, prob_beads[0], ref_rep_, prob_rep)
-
-                    if final_res < minres[0]:
-
-                        minres = [ final_res,r_cid,0]
-
-                if minres[0] < threshold:
-
-                    prob_mol.SetProp("_similarity", str(minres[0]))
-
-                    print("found ", proc,minres[0] )
-
-                    with Chem.SDWriter("output_" + str(proc) + "_"+str(i) + ".sdf") as w:
-
-                        #print("writing to "  "output_" + str(proc) + ".sdf", len(NNs), proc)
-
-                        w.write( prob_mol ,confId = minres[2] )
-
-                        w.write( ref_mol ,confId = minres[1] )
-
-                '''
-
-    if len(NNs) > 0:
-
-        with Chem.SDWriter("output_" + str(proc) + ".sdf") as w:
-
-            print("writing to "  "output_" + str(proc) + ".sdf", len(NNs), proc)
-
-            for mol_ in NNs + [ref_mol]:
-                w.write(mol_)
-
-    else:
-
-        print("none found " + str(proc))
-
-
-
-inds = np.arange(0, db_length)
-
-chunks = np.array_split(inds, maxproc)
-
-args = []
-
-c = 0
-
-for i, j in enumerate(chunks):
-
-    args.append((ref_mol, j, c))
-
-    c += 1
-
-import multiprocessing
-
-p = multiprocessing.Pool()
-
-# defaults to os.cpu_count() workers
-p.map_async(SearchWorker, args)
-
-# perform process for each i in i_list
-p.close()
-p.join()
-
-# Wait for all child processes to close.
-
-'''
-from pathos import multiprocessing
-pool = multiprocessing.Pool(maxproc)
-
-for i, j in enumerate(chunks):
-    args[i] = (ref_mol, j,  i)
-
-results_ = pool.map(SearchWorker, args)
-'''
+pickle.dump(ref_beads,open("TRB507/ref_beads.p","wb"))
+pickle.dump(ref_reps,open("TRB507/ref_reps.p","wb"))

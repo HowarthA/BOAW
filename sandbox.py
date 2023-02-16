@@ -211,8 +211,8 @@ def change_basis(m, direction_vector, origin, c):
     conf = m.GetConformer(c)
 
     for i in range(m.GetNumAtoms()):
-        x, y, z = atom_coords[i]
 
+        x, y, z = atom_coords[i]
         conf.SetAtomPosition(i, Point3D(x, y, z))
 
 
@@ -309,9 +309,21 @@ def make_representation(beads, m, bead_dist, i):
     charges = []
 
     for a in m.GetAtoms():
-        charges.append(abs(float(a.GetProp("_GasteigerCharge"))))
+        charges.append(float(a.GetProp("_GasteigerCharge")))
 
     xtb = XTB(atomic_nums, atom_coords)
+
+
+    from matplotlib import pyplot as plt
+
+    c_ = xtb.get_charges()
+
+    c = np.array([ c_[k] for k in sorted(c_.keys())])
+
+    charges = (c + np.array(charges))/2
+
+
+    quit()
 
     nucleophilicity_ = xtb.get_fukui('nucleophilicity')
 
@@ -401,7 +413,7 @@ def make_representation(beads, m, bead_dist, i):
         # weights = 1 / (1 + np.exp(  (ds -  bead_dist)))
         # make a vector of charges
 
-        charge_vector = np.sum(weights * charges)
+        charge_vector = np.var(weights * charges)
 
         representation[ind1, 0] = charge_vector
 
@@ -415,13 +427,13 @@ def make_representation(beads, m, bead_dist, i):
 
         # logP vectors
 
-        logP_vectors = np.sum(weights * logP_c)
+        logP_vectors = np.average(  logP_c , weights = weights)
 
         representation[ind1, 2] = logP_vectors
 
         # MR vectors - steric descriptors
 
-        MR_vector = np.sum(weights * MR_c)
+        MR_vector = np.average(  MR_c,weights = weights)
 
         representation[ind1, 3] = MR_vector
 

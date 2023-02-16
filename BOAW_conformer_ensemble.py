@@ -1,3 +1,4 @@
+import itertools
 import os
 import numpy as np
 from rdkit import Chem
@@ -27,19 +28,19 @@ from sklearn.preprocessing import StandardScaler
 from morfeus import XTB
 from morfeus import Dispersion
 from morfeus import SASA
+from matplotlib import pyplot as plt
 
 # df = pd.read_csv("/Users/alexanderhowarth/Documents/G3BP1/TRB000"+str(code)+"/G3BP1_"+str(code)+"_grouped.csv")
 # df['suramin_normalised_mean'] = np.abs(df['suramin_normalised_mean'])
 
 ###### have to run export MKL_NUM_THREADS=1 and export OMP_NUM_THREADS=1 before running
 
-basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-
-R = 2 * 2.1943998623787615
-
 os.system("export MKL_NUM_THREADS=1")
 os.system("export OMP_NUM_THREADS=1")
 
+basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+R = 2 * 2.1943998623787615
 
 def standardize(mol):
     clean_mol = rdMolStandardize.Cleanup(mol)
@@ -69,6 +70,47 @@ def write_mol_xyz(mol, kmeans, title,cid):
 
     f.close()
 
+def draw_all_beads(beads,title):
+
+    N = 0
+
+    for bead_set in beads:
+
+        N+=len(bead_set)
+
+    f = open(title  + ".xyz", "w")
+
+    f.write(str(N) + "\n" + "\n")
+
+    for bead_set in beads:
+        for b in bead_set:
+            f.write(str("O") + " " + str(b[0]) + " " + str(b[1]) + " " + str(b[2]) + "\n")
+
+def draw_aligned_all_beads(beads1,beads2,title):
+
+    N = 0
+
+    for bead_set in beads1:
+
+        N+=len(bead_set)
+
+    for bead_set in beads2:
+
+        N+=len(bead_set)
+
+    f = open(title  + ".xyz", "w")
+
+    f.write(str(N) + "\n" + "\n")
+
+    for b in beads1:
+
+        f.write(str("O") + " " + str(b[0]) + " " + str(b[1]) + " " + str(b[2]) + "\n")
+
+
+    for b in beads2:
+
+        f.write(str("N") + " " + str(b[0]) + " " + str(b[1]) + " " + str(b[2]) + "\n")
+
 
 def embed_mol(mol):
 
@@ -92,7 +134,7 @@ def embed_mol(mol):
 
             n_conformers = 300
 
-        confIDs = AllChem.EmbedMultipleConfs(mol, n_conformers)
+        confIDs = AllChem.EmbedMultipleConfs(mol,1)
 
         AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=10000)
 
@@ -126,6 +168,7 @@ def embed_mol_n(mol,n):
     else:
 
         return None
+
 
 def embed_mol_smiles(s):
 
@@ -231,8 +274,8 @@ def make_mol(mol, id):
     return np.array(all_masses), np.array(all_coords), np.array(all_atom_number), np.array(all_aromatic)
 
 
-def find_basis(coordinates, masses):
-    origin = np.average(coordinates, axis=0, weights=masses)
+def find_basis(coordinates):
+    origin = np.average(coordinates, axis=0)
 
     coordinates -= origin
 
@@ -242,7 +285,8 @@ def find_basis(coordinates, masses):
 
     direction_vector = pca.components_
 
-    return direction_vector, origin
+    return direction_vector
+
 
 def change_basis(m,  direction_vector, origin,c):
 
@@ -268,7 +312,6 @@ def change_basis(m,  direction_vector, origin,c):
 
 
 def residual2(params, atomic_nums, unaccounted_atom_pos, beads, dist, connection_bead_position):
-
     basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
     # get initial vectors along z principle axis
@@ -636,6 +679,7 @@ def make_representation_morfeus(beads, m, bead_dist,i):
     return np.array(representation)
 
 
+
 def make_beads(m, confIDs, dist):
     basis = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
@@ -644,8 +688,6 @@ def make_beads(m, confIDs, dist):
     SSSR_ = Chem.GetSSSR(m)
 
     SSSR = []
-
-    print(len(SSSR))
 
     ring_atoms = []
 
@@ -656,10 +698,6 @@ def make_beads(m, confIDs, dist):
         ring_atoms.extend([a for a  in r])
 
     ring_atoms = list(set(ring_atoms))
-
-    print("ring atoms" , len(ring_atoms))
-
-    print(len(SSSR),SSSR)
 
     #### rotate mol onto PC axis
 
@@ -684,8 +722,6 @@ def make_beads(m, confIDs, dist):
             atom_masses = np.concatenate((atom_masses, [atom_masses_[i] for i in r]))
 
             atomic_nums = np.concatenate((atomic_nums, [atomic_nums_[i] for i in r]))
-
-        # atom_masses \= np.sum(atom_masses)
 
         w_ = atom_masses>2
 
@@ -835,80 +871,9 @@ def transform(rep, p0, p1, x, y, z):
     return rep_
 
 
-def align_residual(params, coords_1, coords_2, rep1, rep2):
-    # next apply interpolated rotations
-
-    p0 = params['p0']
-    p1 = params['p1']
-
-    x = params['x']
-    y = params['y']
-    z = params['z']
-
-    coords_2 = transform(coords_2, p0, p1, x, y, z)
-
-    D = pairwise_distances(coords_1, coords_2)
-
-    weights = 1 / (1 + np.exp((D - R / 2)))
-
-    '''
-    residual = np.sum(abs(rep1)) + np.sum(abs(rep2))
-
-    for i, b1 in enumerate(rep1):
-
-        for j, b2 in enumerate(rep2):
-
-            if i <= j:
-
-                residual -= np.sum(weights[i, j] * (abs(b1 + b2) - 0.5 * abs(b1 - b2)))
-
-    '''
-
-    res_sum = np.sum(np.abs(rep1)) + np.sum(np.abs(rep2))
-
-    temp = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
-
-    residual = (res_sum - np.sum(weights[:, :, None] * temp))/res_sum
-
-    temp = np.abs(rep1[:, np.newaxis, :] + rep2)
-
-    #residual = (res_sum - 2 * np.sum(weights[:, :, None] * temp))/res_sum
-
-    return residual
-
-
-def allign_reps(beads_1, beads_2, rep1, rep2):
-
-    #align centres of masses of beads first
-
-    av_b1 = np.mean(beads_1,axis = 0)
-    av_b2 = np.mean(beads_2,axis = 0)
-
-    CoM = av_b2 - av_b1
-
-    fit_params = Parameters()
-
-    fit_params.add("p0", value=0, min=0, max=2 * np.pi, vary=True)
-    fit_params.add("p1", value=0, min=0, max=2 * np.pi, vary=True)
-
-    fit_params.add("x", value=CoM[0], vary=True)
-    fit_params.add("y", value=CoM[1], vary=True)
-    fit_params.add("z", value=CoM[2], vary=True)
-
-    out = minimize(align_residual, fit_params,
-                   args=(beads_1, beads_2, rep1, rep2),
-                   method='nelder')
-
-    #initial_res = align_residual(fit_params, beads_1, beads_2, rep1, rep2)
-
-    aligned_beads_2 = transform(beads_2, out.params['p0'], out.params['p1'], out.params['x'], out.params['y'],
-                                out.params['z'])
-
-    return aligned_beads_2, out.residual, out.params
-
-
 def Physchem_calc(m):
-    return np.array([Descriptors.MolWt(m), Crippen.MolLogP(m), rdMolDescriptors.CalcNumHBA(m), rdMolDescriptors.CalcNumHBD(m),
+    return np.array(
+        [Descriptors.MolWt(m), Crippen.MolLogP(m), rdMolDescriptors.CalcNumHBA(m), rdMolDescriptors.CalcNumHBD(m),
          rdMolDescriptors.CalcFractionCSP3(m)])
 
 
@@ -927,237 +892,333 @@ def Physchem_filter(prob_props, ref_props):
          prob_props[2] == ref_props[2], prob_props[3] == ref_props[3], prob_props[4] > f_sp3_low,
          prob_props[4] < f_sp3_high]))
 
-
-# make the reference molecule and representation
-
-#database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
-
-#scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_morfeus_scaler.p"),"rb"))
-
-database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
-
 scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"),"rb"))
 
-db_length = len(open(database, "r").readlines())
+smiles1 = "COc(cc1)cc2c1c(Cl)c(C(NNC(CCC(Nc1ccccc1)=O)=O)=O)s2"
 
-#ref_mol, ref_confIDs = embed_mol_smiles("CNC(=O)c1ccc(S(=O)(=O)c2ccc(NC(=O)[C@@](C)(O)C(F)(F)F)c(Cl)c2)cc1")
-
-#ref_mol = Chem.MolFromMolFile(os.path.expanduser("705-der-pose1.sdf"), removeHs=False)
-
-#ref_confIDs = [0]
-
-ref_mol, ref_confIDs = embed_mol_smiles("CC[C@@]1(O)C(=O)OCc2c1cc1n(c2=O)Cc2cc3c(CN(C)C)c(O)ccc3nc2-1")
-
-#ref_mol, ref_confIDs = embed_mol(ref_mol)
-
-#ref_mol,ref_confIDs = embed_mol_Inchi("InChI=1S/C18H16ClF3N2O5S/c1-17(27,18(20,21)22)16(26)24-14-8-7-12(9-13(14)19)30(28,29)11-5-3-10(4-6-11)15(25)23-2/h3-9,27H,1-2H3,(H,23,25)(H,24,26)/t17-/m1/s1")
-
-##########
-
-# physchem filters
-
-ref_props = Physchem_calc(ref_mol)
-
-##########
-
-# ref_mol, ref_confIDs = embed_mol_smiles("CN(C)CCCN(C(=O)c1cccc(C(F)(F)F)c1)c1nc2ccc(F)cc2s1")
-
-'''
-for i in ref_confIDs:
-
-    atomic_mass, positions, atomic_numbers, atom_aromatic = make_mol(ref_mol, i)
-
-    direction_vector, origin = find_basis(positions, atomic_mass)
-
-    change_basis(ref_mol, direction_vector, origin, i)
-'''
-
-# database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
-
-# database = "5601.smi"]
-
-ref_beads = make_beads(ref_mol, ref_confIDs, R)
+smiles2 = "C[C@](C(F)(F)F)(C(Nc(ccc(S(c(cc1)ccc1C(NC)=O)(=O)=O)c1)c1Cl)=O)O"
 
 
-write_mol_xyz(ref_mol,ref_beads[0],"1408",0)
 
-quit()
+def embed_beads_energies(smiles):
 
-ref_reps = []
+    ref_mol1, ref_confIDs1 = embed_mol_smiles(smiles)
 
-for beads_, confid in zip(ref_beads, ref_confIDs):
+    rdMolAlign.AlignMolConformers(ref_mol1)
 
-    ref_rep_ = make_representation_morfeus(beads_, ref_mol, R, confid)
+    ref_confIDs1 = [ i for i in ref_confIDs1]
+
+    ref_beads1 = make_beads(ref_mol1, ref_confIDs1, R)
+
+    mp = AllChem.MMFFGetMoleculeProperties(ref_mol1, mmffVariant='MMFF94s')
+
+    energies1 = []
+
+    for cid in ref_confIDs1:
+
+        ff = AllChem.MMFFGetMoleculeForceField(ref_mol1, mp, confId=cid)
+        e = ff.CalcEnergy()
+        energies1.append(e)
+
+    gasConstant = 8.3145
+    temperature = 298.15
+    kcalEnergy = 4184
+
+    relEs1 = np.array(energies1)*kcalEnergy
+
+    populations1 = np.exp( -1* np.array(relEs1)  / (gasConstant * temperature))
+
+    sum_pop1 = np.sum(populations1)
+
+    populations1 = populations1/sum_pop1
+
+    return ref_mol1, ref_confIDs1, ref_beads1, populations1
+
+
+
+ref_mol1, ref_confIDs1, ref_beads1, populations1 = embed_beads_energies(smiles1)
+ref_mol2, ref_confIDs2, ref_beads2 , populations2 = embed_beads_energies(smiles1)
+
+ref_rep1 = []
+
+for beads_, confid in zip(ref_beads1, ref_confIDs1):
+
+    ref_rep_ = make_representation_morfeus(beads_, ref_mol1, R, confid)
 
     ref_rep_ = scaler.transform(ref_rep_)
 
-    ref_reps.append(ref_rep_)
+    ref_rep1.append(ref_rep_)
 
-# database_sdf
 
-maxproc = 600
+ref_rep2 = []
 
-threshold = 0.4
+for beads_, confid in zip(ref_beads2, ref_confIDs2):
 
-def SearchWorker(args):
-    i = 0
+    ref_rep_ = make_representation_morfeus(beads_, ref_mol2, R, confid)
 
-    ref_mol = args[0]
+    ref_rep_ = scaler.transform(ref_rep_)
 
-    inds = args[1]
+    ref_rep2.append(ref_rep_)
 
-    proc = args[2]
 
-    s_file = open(database, "r")
+pickle.dump(ref_mol1 ,open("ref1.p","wb"))
+pickle.dump(ref_confIDs1 ,open("ref_confIDs1.p","wb"))
+pickle.dump(ref_beads1 ,open("ref_beads1.p","wb"))
+pickle.dump(populations1 ,open("populations1.p","wb"))
+pickle.dump(ref_mol2 ,open("ref2.p","wb"))
+pickle.dump(ref_confIDs2 ,open("ref_confIDs2.p","wb"))
+pickle.dump(ref_beads2 ,open("ref_beads2.p","wb"))
+pickle.dump(populations2 ,open("populations2.p","wb"))
+pickle.dump(ref_rep1,open("ref_rep1.p","wb"))
+pickle.dump(ref_rep2,open("ref_rep2.p","wb"))
 
-    while i < inds[0] - 1:
-        s_file.readline()
 
-        i += 1
 
-    NNs = []
+ref1 = pickle.load(open("ref1.p","rb"))
+ref_confIDs1 =pickle.load(open("ref_confIDs1.p","rb"))
+ref_beads1 = pickle.load(open("ref_beads1.p","rb"))
+populations1= pickle.load(open("populations1.p","rb"))
 
-    for i in tqdm.tqdm(inds):
+ref2 = pickle.load(open("ref2.p","rb"))
+ref_confIDs2 = pickle.load(open("ref_confIDs2.p","rb"))
+ref_beads2= pickle.load(open("ref_beads2.p","rb"))
+populations2 = pickle.load(open("populations2.p","rb"))
 
-        s = s_file.readline()
+ref_rep1 =pickle.load(open("ref_rep1.p","rb"))
+ref_rep2 = pickle.load(open("ref_rep2.p","rb"))
 
-        s = s.split()[0]
 
-        try:
+def transform(rep, angles , basis , x, y, z):
 
-            prob_mol = Chem.MolFromSmiles(s)
+    rep_ = copy.copy(rep)
 
-            prob_mol = standardize(prob_mol)
+    # find centre of mass of the second rep
 
+    origin = np.average(rep_, axis=0)
 
-        except:
+    # convert bead positions into direction vectors from centre of mass
 
-            prob_mol = None
+    rep_ -= origin
 
-        if prob_mol:
+    # next rotate vectors to centre of mass by the fitted angles
 
-            ###### calculate some physchem properties for initial filters
+    for i,p in enumerate(basis):
 
-            prob_props = Physchem_calc(prob_mol)
+        r_ab = Rotation.from_rotvec(-1 * p * angles[i])
 
-            if Physchem_filter(prob_props, ref_props):
+        rep_ = r_ab.apply(rep_)
 
-                ######
+    rep_ += origin
 
-                # embed this new mol
+    # next perform translations
 
-                prob_mol = embed_mol_n(prob_mol,1 )
+    rep_ += np.array([x, y, z])
 
-            else:
+    return rep_
 
-                prob_mol = None
 
-            if prob_mol:
+def align_residual_grid(params, coords_1, coords_2, rep1, rep2,pop1,pop2):
 
-                # make beads
+    # next apply interpolated rotations
 
-                prob_beads = make_beads(prob_mol, [0], R)
+    p0 = params['p0']
+    p1 = params['p1']
 
-                #make rep
+    x = params['x']
+    y = params['y']
+    z = params['z']
 
-                prob_rep = make_representation_morfeus(prob_beads[0], prob_mol, R,0)
+    coords_2 = transform(coords_2, p0, p1, x, y, z)
 
-                prob_rep = scaler.transform(prob_rep)
+    ### make box
 
-                #align beads to each set of ref_beads
+    x_ = np.arange( np.min( (np.min(coords_1[:,0]) , np.min(coords_2[:,0])) )  - R,np.max( (np.max(coords_1[:,0]) , np.max(coords_2[:,0])) )  + R    , 0.5)
 
-                res = []
+    y_ = np.arange( np.min( (np.min(coords_1[:,1]) , np.min(coords_2[:,1])) )  - R,np.max( (np.max(coords_1[:,1]) , np.max(coords_2[:,1])) )  + R    , 0.5)
 
-                for ref_beads_, ref_rep_ in zip(ref_beads, ref_reps):
+    z_ =np.arange( np.min( (np.min(coords_1[:,2]) , np.min(coords_2[:,2])) )  - R,np.max( (np.max(coords_1[:,2]) , np.max(coords_2[:,2])) )  + R    , 0.5)
 
-                    aligned_beads_2, final_res, params = allign_reps(ref_beads_, prob_beads[0], ref_rep_, prob_rep)
+    grid = np.vstack(np.meshgrid(x_, y_, z_)).reshape(3, -1).T
 
-                    res.append(final_res)
+    print(np.shape(grid))
 
-                if np.min(res) < threshold:
+    mol1 = np.zeros( (len(x_) * len(y_) * len(z_)  , 15) )
 
-                    prob_mol.SetProp("_similarity", str(np.min(res)))
+    mol2 = np.zeros( (len(x_) * len(y_) * len(z_)  , 15) )
 
-                    NNs.append(prob_mol)
+    for bead, r ,p  in zip(coords_1 ,rep1,pop1):
 
-                    print("found ", proc, len(NNs))
-                    
+        ds = np.linalg.norm( bead - grid )
 
-                '''
-                minres = [10000, 0, 0]
+        mol1 +=  p * np.multiply.outer(  r , np.exp( - 2*ds/R))
 
-                for ref_beads_, ref_rep_,r_cid in zip(ref_beads, ref_reps,ref_confIDs):
+    for bead, r , p in zip(coords_2, rep2,pop2):
 
-                    aligned_beads_2, final_res, params = allign_reps(ref_beads_, prob_beads[0], ref_rep_, prob_rep)
+        ds = np.linalg.norm(bead - grid)
 
-                    if final_res < minres[0]:
+        mol2 +=  p* np.multiply.outer(  r, np.exp( - 2*ds/R))
 
-                        minres = [ final_res,r_cid,0]
+    res_sum = np.sum(np.abs(mol1)) + np.sum(np.abs(mol2))
 
-                if minres[0] < threshold:
+    temp = np.sum(np.abs(mol1 + mol2) - 0.5 * np.abs(mol1 - mol2))
 
-                    prob_mol.SetProp("_similarity", str(minres[0]))
+    residual = (res_sum -  temp)/res_sum
 
-                    print("found ", proc,minres[0] )
+    print(residual)
 
-                    with Chem.SDWriter("output_" + str(proc) + "_"+str(i) + ".sdf") as w:
+    return residual
 
-                        #print("writing to "  "output_" + str(proc) + ".sdf", len(NNs), proc)
 
-                        w.write( prob_mol ,confId = minres[2] )
 
-                        w.write( ref_mol ,confId = minres[1] )
+def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis):
+    # next apply interpolated rotations
 
-                '''
+    angles = [ params['p' + str(i)] for i in range(len(basis))  ]
 
-    if len(NNs) > 0:
+    x = params['x']
+    y = params['y']
+    z = params['z']
 
-        with Chem.SDWriter("output_" + str(proc) + ".sdf") as w:
+    coords_2 = transform(coords_2,angles, basis ,x,y,z )
 
-            print("writing to "  "output_" + str(proc) + ".sdf", len(NNs), proc)
+    D = pairwise_distances(coords_1, coords_2)
+    '''
+    #working ensemble res code - needs bits taken out of loop
+    D_weights = 1 / (1 + np.exp((D - R/2 )))
 
-            for mol_ in NNs + [ref_mol]:
-                w.write(mol_)
+    P_weights = np.multiply.outer(pop1,pop2)
 
-    else:
+    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
 
-        print("none found " + str(proc))
+    rep_overlap = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
 
+    residual = (res_sum -   np.sum( P_weights[:,:,None]*D_weights[:, :, None] * rep_overlap))/res_sum
 
+    '''
 
-inds = np.arange(0, db_length)
+    D_weights = 1 / (1 + np.exp((D - R/2 )))
 
-chunks = np.array_split(inds, maxproc)
+    b = np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] +  rep2[np.newaxis,:,:] ) - np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] -  rep2[np.newaxis,:,:] )
 
-args = []
+    a = np.abs(  rep1[:,np.newaxis, :] +   rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])  - np.abs(  rep1[:,np.newaxis, :] -  rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])
 
-c = 0
+    P_weights = np.multiply.outer(pop1,pop2)
 
-for i, j in enumerate(chunks):
+    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
 
-    args.append((ref_mol, j, c))
+    rep_overlap =  a + b
 
-    c += 1
+    residual = (res_sum -   0.5*np.sum( P_weights[:,:,None] * rep_overlap))/res_sum
 
-import multiprocessing
+    print(residual)
 
-p = multiprocessing.Pool()
+    return residual
 
-# defaults to os.cpu_count() workers
-p.map_async(SearchWorker, args)
 
-# perform process for each i in i_list
-p.close()
-p.join()
+def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
 
-# Wait for all child processes to close.
+    #align centres of masses of beads first
+
+    ###
+
+    rep1 = np.ones(np.shape(rep1))
+    rep2 = np.ones(np.shape(rep2))
+
+    av_b1 = np.mean(beads_1,axis = 0)
+    av_b2 = np.mean(beads_2,axis = 0)
+
+    CoM = av_b2 - av_b1
+
+    fit_params = Parameters()
+
+    #find basis
+
+    pca1 = find_basis(beads_1)
+    pca2 = find_basis(beads_2)
+
+    #
+
+    basis = [ np.cross(p1 , p2) / np.linalg.norm(np.cross(p1 , p2))  for p1,p2 in itertools.product(pca1,pca2) ]
+
+    for p in range(0,len(basis)):
+        fit_params.add("p" + str(p), value=0, min=-np.pi, max=np.pi, vary=True)
+
+    ######
+
+    fit_params.add("x", value=CoM[0], vary=True)
+    fit_params.add("y", value=CoM[1], vary=True)
+    fit_params.add("z", value=CoM[2], vary=True)
+
+    out = minimize(align_residual, fit_params,
+                   args=(beads_1, beads_2, rep1, rep2,pop1,pop2,basis),
+                   method='nelder')
+
+    #initial_res = align_residual(fit_params, beads_1, beads_2, rep1, rep2)
+
+    aligned_beads_2 = transform(beads_2, [ out.params['p' + str(i)] for i in range(len(basis))  ] , basis, out.params['x'], out.params['y'],
+                                out.params['z'])
+
+    print(out.residual)
+
+    return aligned_beads_2, out.residual, out.params
+
+
+
+################ flatten the reps and beads
+
+def flatten_desc(ref_rep1,ref_beads1,populations1):
+
+    flat_beads1 =[]
+
+    flat_rep1 = []
+
+    flat_pop1= []
+
+    l_b = []
+
+    for rep, beads, populations in zip(ref_rep1,ref_beads1,populations1):
+
+        for r_,b_ in zip(rep,beads):
+
+            flat_beads1.append(b_)
+
+            flat_rep1.append(r_)
+
+            flat_pop1.append(populations)
+
+    return np.array(flat_rep1),np.array(flat_beads1),np.array(flat_pop1)
+
+
+
+flat_rep1,flat_beads1,flat_pop1 = flatten_desc(ref_rep1,ref_beads1,populations1)
+
+flat_rep2,flat_beads2,flat_pop2 = flatten_desc(ref_rep2,ref_beads2,populations2)
+
+print(np.sum(flat_pop1))
+
+print(np.sum(flat_pop2))
+
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+#aligned_beads_2, final_res, params = allign_reps(flat_beads1, flat_beads2, flat_rep1,flat_rep2,flat_pop1,flat_pop2)
+
+aligned_beads_2, final_res, params = allign_reps(flat_beads1, flat_beads2, flat_rep1,flat_rep2,flat_pop1,flat_pop2)
+
+fig = plt.figure()
+
+ax = fig.add_subplot(111, projection='3d')
+for b_ , p  in zip(flat_beads1 , flat_pop1 ):
+    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "C1" ,s =200,alpha = p)
 
 '''
-from pathos import multiprocessing
-pool = multiprocessing.Pool(maxproc)
-
-for i, j in enumerate(chunks):
-    args[i] = (ref_mol, j,  i)
-
-results_ = pool.map(SearchWorker, args)
+for b_ , p  in zip(flat_beads2 , flat_pop2 ):
+    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "C2",s =200,alpha = 0.2)
 '''
+
+for b_ , p  in zip(aligned_beads_2 , flat_pop2 ):
+    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "C0",s =200,alpha = p)
+
+ax.set_box_aspect([ub - lb for lb, ub in (getattr(ax, f'get_{a}lim')() for a in 'xyz')])
+
+plt.show()
