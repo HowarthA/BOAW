@@ -645,8 +645,6 @@ def make_beads(m, confIDs, dist):
 
     SSSR = []
 
-    print(len(SSSR))
-
     ring_atoms = []
 
     for r in SSSR_:
@@ -656,11 +654,6 @@ def make_beads(m, confIDs, dist):
         ring_atoms.extend([a for a  in r])
 
     ring_atoms = list(set(ring_atoms))
-
-    print("ring atoms" , len(ring_atoms))
-
-    print(len(SSSR),SSSR)
-
     #### rotate mol onto PC axis
 
     for i in confIDs:
@@ -930,25 +923,25 @@ def Physchem_filter(prob_props, ref_props):
 
 # make the reference molecule and representation
 
-#database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
+database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
 
-#scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_morfeus_scaler.p"),"rb"))
+scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_morfeus_scaler.p"),"rb"))
 
-database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
+#database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
 
-scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"),"rb"))
+#scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"),"rb"))
 
 db_length = len(open(database, "r").readlines())
 
-#ref_mol, ref_confIDs = embed_mol_smiles("CNC(=O)c1ccc(S(=O)(=O)c2ccc(NC(=O)[C@@](C)(O)C(F)(F)F)c(Cl)c2)cc1")
+ref_mol, ref_confIDs = embed_mol_smiles("O=C(NS(=O)(=O)C1C[C@@H]2CC[C@H]1C2)c1cc2ccccc2o1")
 
-#ref_mol = Chem.MolFromMolFile(os.path.expanduser("705-der-pose1.sdf"), removeHs=False)
+#ref_mol = Chem.MolFromMolFile(os.path.expanduser("sdfbrowserexport-8NFPWHU1.sdf"), removeHs=False)
 
 #ref_confIDs = [0]
 
-ref_mol, ref_confIDs = embed_mol_smiles("CC[C@@]1(O)C(=O)OCc2c1cc1n(c2=O)Cc2cc3c(CN(C)C)c(O)ccc3nc2-1")
+#ref_mol, ref_confIDs = embed_mol_smiles("CC[C@@]1(O)C(=O)OCc2c1cc1n(c2=O)Cc2cc3c(CN(C)C)c(O)ccc3nc2-1")
 
-#ref_mol, ref_confIDs = embed_mol(ref_mol)
+ref_mol, ref_confIDs = embed_mol(ref_mol)
 
 #ref_mol,ref_confIDs = embed_mol_Inchi("InChI=1S/C18H16ClF3N2O5S/c1-17(27,18(20,21)22)16(26)24-14-8-7-12(9-13(14)19)30(28,29)11-5-3-10(4-6-11)15(25)23-2/h3-9,27H,1-2H3,(H,23,25)(H,24,26)/t17-/m1/s1")
 
@@ -977,11 +970,6 @@ for i in ref_confIDs:
 # database = "5601.smi"]
 
 ref_beads = make_beads(ref_mol, ref_confIDs, R)
-
-
-write_mol_xyz(ref_mol,ref_beads[0],"1408",0)
-
-quit()
 
 ref_reps = []
 
@@ -1081,7 +1069,6 @@ def SearchWorker(args):
                     NNs.append(prob_mol)
 
                     print("found ", proc, len(NNs))
-                    
 
                 '''
                 minres = [10000, 0, 0]

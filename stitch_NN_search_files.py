@@ -27,17 +27,15 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.SimDivFilters import rdSimDivPickers
 import pickle
 
-folder = "/Users/alexanderhowarth/Desktop/TRB0001408/"
+folder = "/Users/alexanderhowarth/Desktop/TRB705_conf/"
 
-ref_mol = Chem.MolFromMolFile(os.path.expanduser("/Users/alexanderhowarth/Desktop/TRB0001408/sdfbrowserexport-8NFPWHU1.sdf"), removeHs=False)
+#ref_mol = Chem.MolFromMolFile(os.path.expanduser("/Users/alexanderhowarth/Desktop/TRB0001408/sdfbrowserexport-8NFPWHU1.sdf"), removeHs=False)
+
+ref_mol = Chem.MolFromSmiles("CC(C(F)(F)F)(C(Nc(ccc(S(c(cc1)ccc1C(NC)=O)(=O)=O)c1)c1Cl)=O)O")
 
 hit_smiles = Chem.MolToSmiles(ref_mol)
 
-print(hit_smiles)
-
-quit()
-
-Id_code ="TRB00001408"
+Id_code ="TRB0000705"
 
 NNs = []
 
@@ -45,23 +43,20 @@ for f in os.listdir(folder):
 
     if f.startswith("output_"):
 
-        print(f)
-
-
-
         for m in SDMolSupplier(folder + f):
 
             m.SetProp("_file" , f)
 
-            sim = m.GetProp("_similarity")
+            try:
+                sim = m.GetProp("_similarity")
 
-            m.SetProp("_similarity",sim.replace("[","").replace("]",""))
+                m.SetProp("_similarity",sim.replace("[","").replace("]",""))
+
+            except:
+
+                None
 
             NNs.append(m)
-
-            break
-
-
 
 print(len(NNs))
 
@@ -75,7 +70,6 @@ with SDWriter(folder + "/NNs_.sdf") as w:
 
 lp_minmax = rdSimDivPickers.MaxMinPicker()
 lp_leader = rdSimDivPickers.LeaderPicker()
-
 
 def standardize(mol):
     clean_mol = rdMolStandardize.Cleanup(mol)

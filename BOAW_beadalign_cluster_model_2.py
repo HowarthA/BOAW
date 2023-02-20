@@ -1082,8 +1082,8 @@ if __name__ == '__main__':
             residuals[pair[0], pair[1]] = r_
             residuals[pair[1], pair[0]] = r_
 
-    pickle.dump(residuals, open("residuals.p", "wb"))
-    residuals = pickle.load(open("residuals.p", "rb"))
+    pickle.dump(residuals, open("EML4_residuals.p", "wb"))
+    residuals = pickle.load(open("EML4_residuals.p", "rb"))
 
     print(residuals)
 
