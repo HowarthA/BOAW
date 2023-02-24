@@ -30,6 +30,8 @@ from morfeus import Dispersion
 from morfeus import SASA
 from matplotlib import pyplot as plt
 
+from scipy.stats import gaussian_kde
+
 # df = pd.read_csv("/Users/alexanderhowarth/Documents/G3BP1/TRB000"+str(code)+"/G3BP1_"+str(code)+"_grouped.csv")
 # df['suramin_normalised_mean'] = np.abs(df['suramin_normalised_mean'])
 
@@ -196,7 +198,7 @@ def embed_mol_smiles(s):
 
             n_conformers = 300
 
-        confIDs = AllChem.EmbedMultipleConfs(mol, n_conformers)
+        confIDs = AllChem.EmbedMultipleConfs(mol, n_conformers,useRandomCoords=True)
 
         AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=10000)
 
@@ -892,53 +894,68 @@ def Physchem_filter(prob_props, ref_props):
          prob_props[2] == ref_props[2], prob_props[3] == ref_props[3], prob_props[4] > f_sp3_low,
          prob_props[4] < f_sp3_high]))
 
-scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"),"rb"))
-
-smiles1 = "CCS(C(N1C(/C2=C/c(cc3)cc(OC)c3OC(c3ccccc3)=O)=N)=NSC1=NC2=O)(=O)=O" #4618
-
-smiles2 = "COc(cc(/C=C(\C(Nc1ccccc1)=O)/C#N)cc1)c1OCc(cc1)ccc1C(O)=O" #5411
-
 def embed_beads_energies(smiles):
 
-    ref_mol1, ref_confIDs1 = embed_mol_smiles(smiles)
+    m, confids = embed_mol_smiles(smiles)
 
-    rdMolAlign.AlignMolConformers(ref_mol1)
+    rdMolAlign.AlignMolConformers(m)
 
-    ref_confIDs1 = [ i for i in ref_confIDs1]
+    confids = [ i for i in confids]
 
-    ref_beads1 = make_beads(ref_mol1, ref_confIDs1, R)
+    beads = make_beads(m, confids, R)
 
-    mp = AllChem.MMFFGetMoleculeProperties(ref_mol1, mmffVariant='MMFF94s')
+    mp = AllChem.MMFFGetMoleculeProperties(m, mmffVariant='MMFF94s')
 
     energies1 = []
 
-    for cid in ref_confIDs1:
+    for cid in confids:
 
-        ff = AllChem.MMFFGetMoleculeForceField(ref_mol1, mp, confId=cid)
+        ff = AllChem.MMFFGetMoleculeForceField(m, mp, confId=cid)
         e = ff.CalcEnergy()
         energies1.append(e)
 
-    gasConstant = 8.3145
+    gasConstant = 1.9872036*10**(-3)
     temperature = 298.15
-    kcalEnergy = 4184
 
-    relEs1 = np.array(energies1)*kcalEnergy
+    #kcalEnergy = 4184
 
-    populations1 = np.exp( -1* np.array(relEs1)  / (gasConstant * temperature))
+    print("kT" , gasConstant * temperature)
 
-    sum_pop1 = np.sum(populations1)
+    relEs1 = np.array(energies1)
 
-    populations1 = populations1/sum_pop1
+    relEs1  -= np.min(relEs1 )
 
-    return ref_mol1, ref_confIDs1, ref_beads1, populations1
+    print(relEs1)
+
+    pops = np.exp( -1* np.array(relEs1)  / (gasConstant * temperature))
+
+    sum_pop1 = np.sum(pops)
+
+    print("sum_pop" , sum_pop1 , pops)
+
+    pops = pops/sum_pop1
+
+    return m, confids, beads, pops
+
+
+scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"),"rb"))
+
+smiles2 = "CCS(C(N1C(/C2=C/c(cc3)cc(OC)c3OC(c3ccccc3)=O)=N)=NSC1=NC2=O)(=O)=O" #4618
+
+#smiles2 = "CCS(C(N1C(/C2=C/c(cc3)cc(OC)c3OC(c3ccccc3)=O)=N)=NSC1=NC2=O)(=O)=O" #4618
+
+#smiles2 = "COc(cc(/C=C(\C(Nc1ccccc1)=O)/C#N)cc1)c1OCc(cc1)ccc1C(O)=O" #5411
+
+
+smiles1 = "[O-][N+](c(cc1)ccc1C(NN(C(c(cc1)c(c2ccc3[N+]([O-])=O)c3c1[N+]([O-])=O)=O)C2=O)=O)=O" #4618 NN
+
+#smiles1 = "CN(C)CCCN(C(c1cc(C(F)(F)F)ccc1)=O)c1nc(ccc(F)c2)c2s1" #5601
+#smiles2 = "O=C(Nc2nc1ccc(F)cc1s2)c3cccc(C(F)(F)F)c3" #5601 mod
+
 
 print("embedding mols and making beads 1 ")
 
 ref_mol1, ref_confIDs1, ref_beads1, populations1 = embed_beads_energies(smiles1)
-
-print("embedding mols and making beads 2 ")
-
-ref_mol2, ref_confIDs2, ref_beads2 , populations2 = embed_beads_energies(smiles2)
 
 ref_rep1 = []
 
@@ -950,6 +967,10 @@ for beads_, confid in tqdm.tqdm(zip(ref_beads1, ref_confIDs1) , total=len(ref_be
 
     ref_rep1.append(ref_rep_)
 
+print("embedding mols and making beads 2 ")
+
+ref_mol2, ref_confIDs2, ref_beads2 , populations2 = embed_beads_energies(smiles2)
+
 ref_rep2 = []
 
 for beads_, confid in tqdm.tqdm(zip(ref_beads2, ref_confIDs2) , total=len(ref_beads2)):
@@ -959,6 +980,7 @@ for beads_, confid in tqdm.tqdm(zip(ref_beads2, ref_confIDs2) , total=len(ref_be
     ref_rep_ = scaler.transform(ref_rep_)
 
     ref_rep2.append(ref_rep_)
+
 
 pickle.dump(ref_mol1 ,open("ref1.p","wb"))
 pickle.dump(ref_confIDs1 ,open("ref_confIDs1.p","wb"))
@@ -1067,7 +1089,7 @@ def transform(rep, angles , basis , x, y, z):
     return rep_
 
 
-def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis):
+def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis,P_weights,res_sum,rep_overlap,approx):
     # next apply interpolated rotations
 
     angles = [ params['p' + str(i)] for i in range(len(basis))  ]
@@ -1080,40 +1102,45 @@ def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis):
 
     D = pairwise_distances(coords_1, coords_2)
 
-
-    #working ensemble res code - needs bits taken out of loop
-    D_weights = 1 / (1 + np.exp((D - R/2 )))
-
-    P_weights = np.multiply.outer(pop1,pop2)
-
-    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
-
-    rep_overlap = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
-
-    residual = (res_sum -   np.sum( P_weights[:,:,None]*D_weights[:, :, None] * rep_overlap))/res_sum
-
+    #approximated overlap
     #D_weights = 1 / (1 + np.exp((D - R/2 )))
 
     D_weights = np.exp( - 2 * D/R)
 
-    b = np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] +  rep2[np.newaxis,:,:] ) - np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] -  rep2[np.newaxis,:,:] )
+    '''
+    weight_sum = np.sum(D_weights * P_weights)
 
-    a = np.abs(  rep1[:,np.newaxis, :] +   rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])  - np.abs(  rep1[:,np.newaxis, :] -  rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])
+    weights = P_weights[:,:,None]*D_weights[:, :, None] / weight_sum
+    
+    if approx == True:
 
-    P_weights = np.multiply.outer(pop1,pop2)
+        residual = (res_sum - np.sum(weights * rep_overlap)) / (res_sum)
 
-    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
+    '''
 
-    rep_overlap =   0.5 * (a + b)
+    if approx == True:
 
-    residual2 = (res_sum -   np.sum( P_weights[:,:,None] * rep_overlap))/res_sum
+        residual = (res_sum -   np.sum( P_weights[:,:,None]*D_weights[:, :, None] * rep_overlap ))/(res_sum  )
 
-    print(residual,residual2)
+    else:
+
+        b = np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] +  rep2[np.newaxis,:,:] ) - np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] -  rep2[np.newaxis,:,:] )
+
+        a = np.abs(  rep1[:,np.newaxis, :] +   rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])  - np.abs(  rep1[:,np.newaxis, :] -  rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])
+
+        P_weights = np.multiply.outer(pop1,pop2)
+
+        res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
+
+        rep_overlap =  (a + b)
+
+        residual = (res_sum -   0.5 *np.sum( P_weights[:,:,None] * rep_overlap))/res_sum
+
 
     return residual
 
 
-def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
+def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2,approx):
 
     #align centres of masses of beads first
 
@@ -1147,16 +1174,19 @@ def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
     fit_params.add("y", value=CoM[1], vary=True)
     fit_params.add("z", value=CoM[2], vary=True)
 
-    out = minimize(align_residual, fit_params,
-                   args=(beads_1, beads_2, rep1, rep2,pop1,pop2,basis),
-                   method='nelder')
+    P_weights = np.multiply.outer(pop1,pop2)
 
-    #initial_res = align_residual(fit_params, beads_1, beads_2, rep1, rep2)
+    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
+
+    rep_overlap = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
+
+    out = minimize(align_residual, fit_params,
+                   args=(beads_1, beads_2, rep1, rep2,pop1,pop2,basis,P_weights,res_sum,rep_overlap,approx),
+                   method='basin-hopping')
 
     aligned_beads_2 = transform(beads_2, [ out.params['p' + str(i)] for i in range(len(basis))  ] , basis, out.params['x'], out.params['y'],
                                 out.params['z'])
 
-    print(out.residual)
 
     return aligned_beads_2, out.residual, out.params
 
@@ -1185,31 +1215,46 @@ def flatten_desc(ref_rep1,ref_beads1,populations1):
 
 ################ flatten the reps and beads
 
+print(populations1)
+
+print(populations2)
+
+populations1 = np.ones(len(populations1))/len(populations1)
+
+print(populations1[0])
+
+populations2 = np.ones(len(populations2))/len(populations2)
+
+print(populations2[0])
+
 flat_rep1,flat_beads1,flat_pop1 = flatten_desc(ref_rep1,ref_beads1,populations1)
 
 flat_rep2,flat_beads2,flat_pop2 = flatten_desc(ref_rep2,ref_beads2,populations2)
 
-print(np.sum(flat_pop1))
-print(np.sum(flat_pop2))
+
+
 
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-aligned_beads_2, final_res, params = allign_reps(flat_beads1, flat_beads2, flat_rep1,flat_rep2,flat_pop1,flat_pop2)
+aligned_beads_2, final_res, params = allign_reps(flat_beads1, flat_beads2, flat_rep1,flat_rep2,flat_pop1,flat_pop2,approx = True)
+
+print(final_res)
 
 fig = plt.figure()
 
 ax = fig.add_subplot(111, projection='3d')
-for b_ , p  in zip(flat_beads1 , flat_pop1 ):
-    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "C1" ,s =200,alpha = p)
 
-'''
+for b_ , p  in zip(flat_beads1 , flat_pop1 ):
+    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "deepskyblue" ,s =200,alpha = p)
+
+
 for b_ , p  in zip(flat_beads2 , flat_pop2 ):
-    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "C2",s =200,alpha = 0.2)
-'''
+    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "C2",s =200,alpha = p)
+
 
 for b_ , p  in zip(aligned_beads_2 , flat_pop2 ):
-    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "C0",s =200,alpha = p)
+    ax.scatter(b_[0], b_[1], b_[2], marker="o" , color = "crimson",s =200,alpha = p)
 
 ax.set_box_aspect([ub - lb for lb, ub in (getattr(ax, f'get_{a}lim')() for a in 'xyz')])
 

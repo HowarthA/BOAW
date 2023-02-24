@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from matplotlib import pyplot as plt
 import os
 
-folder = os.path.expanduser( "~/beads_dist/")
+folder = os.path.expanduser( "Mcule_beads_morfeus/")
 
 beads= [ ]
 
@@ -22,9 +22,17 @@ for f in sorted(os.listdir(folder)):
 
             if len(m) > 0:
 
-                beads.extend(m)
+                beads.append(m)
 
         #b = [i for i in pickle.load(open(folder + f, "rb"))]
+
+scaler = StandardScaler()
+
+scaler.fit(beads)
+
+pickle.dump(scaler, open("BOAW_Mcule_morfeus_scaler_aws.p","wb"))
+
+quit()
 
 beads = np.array(beads)
 
@@ -32,11 +40,7 @@ print(np.shape(beads))
 
 #pickle.dump(beads, open( folder +  "BOAW_Mcule_morfeus_beads.p","wb"))
 
-scaler = StandardScaler()
 
-scaler.fit(beads)
-
-pickle.dump(scaler, open(folder + "BOAW_Mcule_morfeus_scaler.p","wb"))
 
 
 quit()

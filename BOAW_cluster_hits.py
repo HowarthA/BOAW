@@ -932,7 +932,7 @@ def embed_beads_energies(m):
     return ref_mol1, ref_confIDs1, ref_beads1, populations1
 
 
-scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"),"rb"))
+
 
 
 
@@ -1015,7 +1015,8 @@ def transform(rep, angles , basis , x, y, z):
     return rep_
 
 
-def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis):
+
+def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis,P_weights,res_sum,rep_overlap,approx):
     # next apply interpolated rotations
 
     angles = [ params['p' + str(i)] for i in range(len(basis))  ]
@@ -1028,40 +1029,34 @@ def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis):
 
     D = pairwise_distances(coords_1, coords_2)
 
-    '''
-    #working ensemble res code - needs bits taken out of loop
-    D_weights = 1 / (1 + np.exp((D - R/2 )))
-
-    P_weights = np.multiply.outer(pop1,pop2)
-
-    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
-
-    rep_overlap = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
-
-    residual = (res_sum -   np.sum( P_weights[:,:,None]*D_weights[:, :, None] * rep_overlap))/res_sum
-
-    '''
-
+    #approximated overlap
     #D_weights = 1 / (1 + np.exp((D - R/2 )))
 
     D_weights = np.exp( - 2 * D/R)
 
-    b = np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] +  rep2[np.newaxis,:,:] ) - np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] -  rep2[np.newaxis,:,:] )
+    if approx == True:
 
-    a = np.abs(  rep1[:,np.newaxis, :] +   rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])  - np.abs(  rep1[:,np.newaxis, :] -  rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])
+        residual = (res_sum -   np.sum( P_weights[:,:,None]*D_weights[:, :, None] * rep_overlap))/res_sum
 
-    P_weights = np.multiply.outer(pop1,pop2)
+    else:
 
-    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
+        b = np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] +  rep2[np.newaxis,:,:] ) - np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] -  rep2[np.newaxis,:,:] )
 
-    rep_overlap = 0.5 * (a + b)
+        a = np.abs(  rep1[:,np.newaxis, :] +   rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])  - np.abs(  rep1[:,np.newaxis, :] -  rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])
 
-    residual = (res_sum -   np.sum( P_weights[:,:,None] * rep_overlap))/res_sum
+        P_weights = np.multiply.outer(pop1,pop2)
+
+        res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
+
+        rep_overlap =  (a + b)
+
+        residual = (res_sum -   0.5 *np.sum( P_weights[:,:,None] * rep_overlap))/res_sum
+
 
     return residual
 
 
-def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
+def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2,approx):
 
     #align centres of masses of beads first
 
@@ -1095,8 +1090,14 @@ def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
     fit_params.add("y", value=CoM[1], vary=True)
     fit_params.add("z", value=CoM[2], vary=True)
 
+    P_weights = np.multiply.outer(pop1,pop2)
+
+    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
+
+    rep_overlap = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
+
     out = minimize(align_residual, fit_params,
-                   args=(beads_1, beads_2, rep1, rep2,pop1,pop2,basis),
+                   args=(beads_1, beads_2, rep1, rep2,pop1,pop2,basis,P_weights,res_sum,rep_overlap,approx),
                    method='nelder')
 
     #initial_res = align_residual(fit_params, beads_1, beads_2, rep1, rep2)
@@ -1106,6 +1107,7 @@ def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
 
 
     return aligned_beads_2, out.residual, out.params
+
 
 
 ################ flatten the reps and beads
@@ -1132,35 +1134,39 @@ def flatten_desc(ref_rep1,ref_beads1,populations1):
 
     return np.array(flat_rep1),np.array(flat_beads1),np.array(flat_pop1)
 
+
 def AlignWorker(args):
 
-    pair = args[0]
+    c, beads, reps,pops = args
 
+    res = []
 
-    if pair[0] ==pair[1]:
+    for c2 in range(len(reps)):
 
-        return 0
+        if c2 ==c:
 
-    else:
+            res.append(0)
 
-        beads_1 = args[1][pair[0]]
-        beads_2 = args[1][pair[1]]
+        else:
 
-        reps_1 = args[2][pair[0]]
-        reps_2 = args[2][pair[1]]
+            beads_1 = beads[c]
+            beads_2 = beads[c2]
 
+            reps_1 = reps[c]
+            reps_2 = reps[c2]
 
-        pops_1 = args[3][pair[0]]
-        pops_2 = args[3][pair[1]]
+            pops_1 = pops[c]
+            pops_2 = pops[c2]
 
-        flat_rep1, flat_beads1, flat_pop1 = flatten_desc(reps_1,beads_1,pops_1)
-        flat_rep2, flat_beads2, flat_pop2 = flatten_desc(reps_2,beads_2,pops_2)
+            flat_rep1, flat_beads1, flat_pop1 = flatten_desc(reps_1,beads_1,pops_1)
+            flat_rep2, flat_beads2, flat_pop2 = flatten_desc(reps_2,beads_2,pops_2)
 
+            temp_align_beads, residual, out_params = allign_reps(flat_beads1, flat_beads2, flat_rep1, flat_rep2, flat_pop1,
+                                                             flat_pop2,approx=False)
 
-        temp_align_beads, residual, out_params = allign_reps(flat_beads1, flat_beads2, flat_rep1, flat_rep2, flat_pop1,
-                                                         flat_pop2)
+            res.append(residual)
 
-        return residual
+    return res
 
 
 
@@ -1171,7 +1177,7 @@ if __name__ == '__main__':
     labels =[]
     mols_ = []
 
-    for m in Chem.SDMolSupplier("/Users/alexanderhowarth/Desktop/EML4-ALK_LL1_PhaseScan_primary.sdf"):
+    for m in Chem.SDMolSupplier("/Users/alexanderhowarth/Desktop/EML4-ALK_LL1_phasscan_DR.sdf"):
 
         ID = m.GetProp('ID')
 
@@ -1179,6 +1185,17 @@ if __name__ == '__main__':
 
             labels.append(ID)
             mols_.append(m)
+
+
+    for m in Chem.SDMolSupplier("/Users/alexanderhowarth/Desktop/extra_EML4_hits.sdf"):
+
+        ID = m.GetProp('ID')
+
+        if ID not in labels:
+
+            labels.append(ID)
+            mols_.append(m)
+
 
     mols = []
 
@@ -1226,6 +1243,8 @@ if __name__ == '__main__':
 
     scaler.fit(reps_all)
 
+    scaler = pickle.load(open("BOAW_LL1_morfeus_scaler.p","rb"))
+
     reps = []
 
     for rep in reps_:
@@ -1236,48 +1255,42 @@ if __name__ == '__main__':
 
             reps[-1].append(scaler.transform(r))
 
-    print(reps)
-
-
     # next make beads and all representations for all conformers and mols
 
     ###### find reference by all on all alignment
-    '''
-    pairs_of_mols = np.array(list(itertools.product(np.arange(len(mols)), np.arange(len(mols)))))
 
-    distance_matrix = np.zeros((len(mols), len(mols)))
+    #pairs_of_mols = np.array(list(itertools.product(np.arange(len(mols)), np.arange(len(mols)))))
 
-    for p in tqdm.tqdm(pairs_of_mols):
+    #distance_matrix = np.zeros((len(mols), len(mols)))
 
-        if p[1] != p[0]:
+    #for p in tqdm.tqdm(pairs_of_mols):
 
-            flat_rep1, flat_beads1, flat_pop1 = flatten_desc(reps[p[0]], beads[p[0]], pops[p[0]])
-            flat_rep2, flat_beads2, flat_pop2 = flatten_desc(reps[p[1]], beads[p[1]], pops[p[1]])
+     #   if p[1] != p[0]:
 
-            aligned_beads_2, final_res, params = allign_reps(flat_beads1, flat_beads2, flat_rep1, flat_rep2, flat_pop1,
-                                                             flat_pop2)
+      #      flat_rep1, flat_beads1, flat_pop1 = flatten_desc(reps[p[0]], beads[p[0]], pops[p[0]])
+       #     flat_rep2, flat_beads2, flat_pop2 = flatten_desc(reps[p[1]], beads[p[1]], pops[p[1]])
 
-            distance_matrix[p[0], p[1]] = final_res
-            distance_matrix[p[1], p[0]] = final_res
-    '''
+        #    aligned_beads_2, final_res, params = allign_reps(flat_beads1, flat_beads2, flat_rep1, flat_rep2, flat_pop1,
+            #                                                 flat_pop2)
 
-    chunk_number = 8
+         #   distance_matrix[p[0], p[1]] = final_res
+          #  distance_matrix[p[1], p[0]] = final_res
 
-    pairs_of_mols = np.array(list(itertools.product(np.arange(len(mols)), np.arange(len(mols)))))
+    maxproc = 5
 
-    args = [[(c, beads, reps,pops)] for c in pairs_of_mols]
+    #pairs_of_mols = np.array(list(itertools.product(np.arange(len(mols)), np.arange(len(mols)))))
+
+    args = [[(c, beads, reps,pops)] for c in range(len(mols))]
 
     p = mp.Pool()
 
     # defaults to os.cpu_count() workers
 
-    maxproc = 5
-
     to_do = ['' for i in args]
 
-    print("running alignments", print(len(to_do)))
-
     res_vector = ['' for i in args]
+
+    print("running alignments", len(mols) * len(mols))
 
     pool = mp.Pool(maxproc)
 
@@ -1301,18 +1314,16 @@ if __name__ == '__main__':
 
     distance_matrix = np.zeros((len(mols), len(mols)))
 
-    for c, r in zip(pairs_of_mols, res_vector):
+    for c,  r in enumerate(res_vector):
 
-        print(c,r)
-
-        distance_matrix[c[0], c[1]] = r
-        distance_matrix[c[1], c[0]] = r
+        distance_matrix[c , : ] = r
 
     #pickle.dump(distance_matrix, open("residuals.p", "wb"))
     #distance_matrix = pickle.load(open("residuals.p", "rb"))
 
-    pickle.dump(distance_matrix, open("YAP_residuals.p", "wb"))
-    distance_matrix = pickle.load(open("YAP_residuals.p", "rb"))
+    pickle.dump(distance_matrix, open("EML4_residuals.p", "wb"))
+
+    distance_matrix = pickle.load(open("EML4_residuals.p", "rb"))
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
 
@@ -1322,29 +1333,41 @@ if __name__ == '__main__':
     from scipy.cluster import hierarchy
     from scipy.spatial.distance import squareform
 
-    print(distance_matrix)
+
 
     mean_d = np.mean(distance_matrix)
     std_d = np.std(distance_matrix)
 
     '''
-    #for i in range(len(distance_matrix)):
+    distance_matrix[distance_matrix < 0 ] = 0
 
-        #distance_matrix[i,i] = mean_d
 
-    #corr = np.exp(-( 2*(distance_matrix - mean_d)/std_d ) **2 )
+    for i in range(len(distance_matrix)):
+
+        distance_matrix[i,i] = mean_d
+
+    corr = np.exp(-( (distance_matrix - mean_d)/( 0.1) ) **2 )
+
+    distance_matrix = 1-corr
+
+    for i in range(len(distance_matrix)):
+
+        distance_matrix[i,i] = 0
     '''
 
     distance_matrix[distance_matrix < 0 ] = 0
+    distance_matrix = (distance_matrix + distance_matrix.T) / 2
+
 
     corr = 1-distance_matrix
 
+    print(distance_matrix)
     # Ensure the correlation matrix is symmetric
+
+
 
     # We convert the correlation matrix to a distance matrix before performing
     # hierarchical clustering using Ward's linkage.
-
-    corr = 1-distance_matrix
 
     print(distance_matrix)
 

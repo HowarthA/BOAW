@@ -1080,8 +1080,8 @@ def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2,approx):
     return aligned_beads_2, out.residual, out.params
 
 
-
 ################ flatten the reps and beads
+
 
 def flatten_desc(ref_rep1, ref_beads1, populations1):
     flat_beads1 = []
@@ -1103,63 +1103,52 @@ def flatten_desc(ref_rep1, ref_beads1, populations1):
 
     return np.array(flat_rep1), np.array(flat_beads1), np.array(flat_pop1)
 
-def Worker_pairs(args):
+def Worker(args):
 
-    inds, mols, proc = args
+    inds, mols, proc,ids = args
 
-    residual = []
+    output = []
 
-    for i in tqdm.tqdm(inds):
+    if "output_" + str(proc) + ".p" not in os.listdir():
 
-        p0 = i[0]
-        p1 = i[1]
+        try:
 
-        m1 = mols[p0]
-        m2 = mols[p1]
+            for i in tqdm.tqdm(inds):
 
-        mol1, confIDs1, beads_1, populations1 = embed_beads_energies(m1)
+                m1 = mols[i]
 
-        rep_1 = []
+                if m1:
 
-        for b, confid in zip(beads_1, confIDs1):
+                    mol1, confIDs1, beads_1, populations1 = embed_beads_energies(m1)
 
-            r = make_representation_morfeus(b, mol1, R, confid)
+                    rep_1 = []
 
-            r = scaler.transform(r)
+                    for b, confid in zip(beads_1, confIDs1):
 
-            rep_1.append(r)
-        print("embed mol 2"  )
-        mol2, confIDs2, beads_2, populations2 = embed_beads_energies(m2)
+                        try:
 
-        rep_2 = []
-        print("making rep 2 ")
-        for b, confid in zip(beads_2, confIDs2):
+                            r = make_representation_morfeus(b, mol1, R, confid)
 
-            r = make_representation_morfeus(b, mol2, R, confid)
+                            rep_1.append(r)
 
-            r = scaler.transform(r)
+                        except:
 
-            rep_2.append(r)
+                            rep_1.append(None)
 
-        flat_rep1, flat_beads1, flat_pop1 = flatten_desc(rep_1, beads_1, populations1)
+                    flat_rep1, flat_beads1, flat_pop1 = flatten_desc(rep_1, beads_1, populations1)
 
-        flat_rep2, flat_beads2, flat_pop2 = flatten_desc(rep_2, beads_2, populations2)
+                    output.append([ ids[i], flat_rep1, flat_beads1, flat_pop1 ])
 
-        print("align")
+            pickle.dump(output, open("output_" + str(proc) + ".p", "wb"))
 
-        aligned_beads_2, final_res, params = allign_reps(flat_beads1, flat_beads2, flat_rep1, flat_rep2, flat_pop1,
-                                                         flat_pop2,approx=True)
+        except:
 
-        residual.append(final_res)
+            print("proc " , proc ,"failed")
 
-    pickle.dump(residual, open("pairs_" + str(proc) + ".p", "wb"))
-
-
-mols = [ standardize(m) for m in Chem.SDMolSupplier("/Users/alexanderhowarth/Downloads/LL1.sdf") ]
 
 ####### mismatched pairs:
 
-scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"), "rb"))
+#scaler = pickle.load(open(os.path.expanduser("BOAW_Mcule_morfeus_scaler.p"), "rb"))
 
 pairs = True
 
@@ -1167,44 +1156,38 @@ if __name__ == '__main__':
 
     ### input mols as a list of smiles or sdf files
 
-    chunk_n = 1
+    mols = [standardize(m) for m in Chem.SDMolSupplier("LL1.sdf")]
+
+    IDS = [ m.GetProp("ID") for m in mols ]
 
     db_length = len(mols)
 
     inds = np.arange(0, db_length)
 
-    if pairs == True:
+    chunk_n = 600
 
-        pairs = np.array(list(itertools.product(inds,inds)))
-
-        np.random.shuffle(pairs)
-
-        chunks = [ pairs[np.arange( i*1000,(i+1)*1000 )] for i in range(0,60) ]
-
-    else:
-
-        pairs = np.array([ (m,n) for m, n in zip( np.arange(len(mols)) , np.arange(len(mols))   ) ])
-
-        chunks = np.array_split(pairs, 8)
+    chunks = np.array_split(inds, chunk_n)
 
     args = []
 
-    c = 0
-
     for i, j in enumerate(chunks):
 
-        args.append(( j, mols,c))
+        args.append([ (j, mols,i,IDS)])
 
-        c +=1
+    maxproc = 60
 
-    p = mp.Pool()
+    pool = mp.Pool(maxproc)
+    to_do = ['' for i in args]
 
-    #Worker_pairs(args[0])
+    for i, a in enumerate(args):
+        to_do[i] = pool.apply_async(Worker, a)
 
-    # defaults to os.cpu_count() workers
+    start_time = time.time()
 
-    p.map_async(Worker_pairs, args)
+    for i in range(len(args)):
+        to_do[i].get()
 
     # perform process for each i in i_list
-    p.close()
-    p.join()
+
+    pool.close()
+    pool.join()

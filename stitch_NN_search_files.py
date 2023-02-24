@@ -27,15 +27,15 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.SimDivFilters import rdSimDivPickers
 import pickle
 
-folder = "/Users/alexanderhowarth/Desktop/TRB705_conf/"
+folder = "/Users/alexanderhowarth/Desktop/4618_search_average/"
 
 #ref_mol = Chem.MolFromMolFile(os.path.expanduser("/Users/alexanderhowarth/Desktop/TRB0001408/sdfbrowserexport-8NFPWHU1.sdf"), removeHs=False)
 
-ref_mol = Chem.MolFromSmiles("CC(C(F)(F)F)(C(Nc(ccc(S(c(cc1)ccc1C(NC)=O)(=O)=O)c1)c1Cl)=O)O")
+ref_mol = Chem.MolFromSmiles("CCS(C(N1C(/C2=C/c(cc3)cc(OC)c3OC(c3ccccc3)=O)=N)=NSC1=NC2=O)(=O)=O")
 
 hit_smiles = Chem.MolToSmiles(ref_mol)
 
-Id_code ="TRB0000705"
+Id_code ="TRB0004618"
 
 NNs = []
 

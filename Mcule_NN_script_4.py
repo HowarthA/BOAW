@@ -840,7 +840,8 @@ def transform(rep, angles , basis , x, y, z):
     return rep_
 
 
-def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis,P_weights,res_sum):
+
+def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis,P_weights,res_sum,rep_overlap,approx):
     # next apply interpolated rotations
 
     angles = [ params['p' + str(i)] for i in range(len(basis))  ]
@@ -853,36 +854,33 @@ def align_residual(params, coords_1, coords_2, rep1, rep2,pop1,pop2,basis,P_weig
 
     D = pairwise_distances(coords_1, coords_2)
 
-    '''
-    #working ensemble res code - needs bits taken out of loop
-    D_weights = 1 / (1 + np.exp((D - R/2 )))
+    #approximated overlap
+    #D_weights = 1 / (1 + np.exp((D - R/2 )))
 
-    P_weights = np.multiply.outer(pop1,pop2)
+    D_weights = np.exp( - 2 * D/R)
 
-    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
+    if approx == True:
 
-    rep_overlap = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
+        residual = (res_sum -   np.sum( P_weights[:,:,None]*D_weights[:, :, None] * rep_overlap))/res_sum
 
-    residual = (res_sum -   np.sum( P_weights[:,:,None]*D_weights[:, :, None] * rep_overlap))/res_sum
+    else:
 
-    '''
+        b = np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] +  rep2[np.newaxis,:,:] ) - np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] -  rep2[np.newaxis,:,:] )
 
-    D_weights = 1 / (1 + np.exp((D - R/2 )))
+        a = np.abs(  rep1[:,np.newaxis, :] +   rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])  - np.abs(  rep1[:,np.newaxis, :] -  rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])
 
-    #D_weights = np.exp( - 4 * D/R)
+        P_weights = np.multiply.outer(pop1,pop2)
 
-    a = np.abs(  rep1[:,np.newaxis, :] +  rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])  - np.abs(  rep1[:,np.newaxis, :] -  rep2[np.newaxis,:,:]* D_weights[:,:,np.newaxis])
+        res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
 
-    b = np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] +  rep2[np.newaxis,:,:] ) - np.abs( rep1[:,np.newaxis, :]* D_weights[:,:,np.newaxis] -  rep2[np.newaxis,:,:] )
+        rep_overlap =  (a + b)
 
-    rep_overlap =  a + b
+        residual = (res_sum -   0.5 *np.sum( P_weights[:,:,None] * rep_overlap))/res_sum
 
-    residual = (res_sum - 0.5* np.sum( P_weights[:,:,None] * rep_overlap))/res_sum
 
     return residual
 
-
-def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
+def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2,approx):
 
     #align centres of masses of beads first
 
@@ -903,11 +901,8 @@ def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
     pca1 = find_basis(beads_1)
     pca2 = find_basis(beads_2)
 
-    P_weights = np.multiply.outer(pop1,pop2)
-
-    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
-
     #
+
     basis = [ np.cross(p1 , p2) / np.linalg.norm(np.cross(p1 , p2))  for p1,p2 in itertools.product(pca1,pca2) ]
 
     for p in range(0,len(basis)):
@@ -919,14 +914,27 @@ def allign_reps(beads_1, beads_2, rep1, rep2,pop1,pop2):
     fit_params.add("y", value=CoM[1], vary=True)
     fit_params.add("z", value=CoM[2], vary=True)
 
+    P_weights = np.multiply.outer(pop1,pop2)
+
+    res_sum = np.sum(pop1[:,None]*np.abs(rep1)) + np.sum(pop2[:,None] * np.abs(rep2))
+
+    rep_overlap = np.abs(rep1[:, np.newaxis, :] + rep2) - np.abs(rep1[:, np.newaxis, :] - rep2)
+
+
+
     out = minimize(align_residual, fit_params,
-                   args=(beads_1, beads_2, rep1, rep2,pop1,pop2,basis,P_weights,res_sum),
+                   args=(beads_1, beads_2, rep1, rep2,pop1,pop2,basis,P_weights,res_sum,rep_overlap,approx),
                    method='nelder')
+
+    #initial_res = align_residual(fit_params, beads_1, beads_2, rep1, rep2)
 
     aligned_beads_2 = transform(beads_2, [ out.params['p' + str(i)] for i in range(len(basis))  ] , basis, out.params['x'], out.params['y'],
                                 out.params['z'])
 
-    return aligned_beads_2, out.residual[0], out.params
+
+    return aligned_beads_2, out.residual, out.params
+
+
 
 
 def flatten_desc(ref_rep1,ref_beads1,populations1):
@@ -976,7 +984,7 @@ def Physchem_filter(prob_props, ref_props):
 
 database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
 
-scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_morfeus_scaler.p"),"rb"))
+scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_morfeus_scaler_aws.p"),"rb"))
 
 #database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
 
@@ -984,8 +992,9 @@ scaler = pickle.load(open(os.path.expanduser("~/BOAW_Mcule_morfeus_scaler.p"),"r
 
 db_length = len(open(database, "r").readlines())
 
-ref_mol = Chem.MolFromSmiles("CC(C(F)(F)F)(C(Nc(ccc(S(c(cc1)ccc1C(NC)=O)(=O)=O)c1)c1Cl)=O)O")
+ref_mol = Chem.MolFromSmiles("CCS(C(N1C(/C2=C/c(cc3)cc(OC)c3OC(c3ccccc3)=O)=N)=NSC1=NC2=O)(=O)=O")
 
+ref_props = Physchem_calc(ref_mol)
 ref_mol, ref_confIDs, ref_beads, ref_pops = embed_beads_energies(ref_mol)
 
 # make rep
@@ -993,6 +1002,7 @@ ref_mol, ref_confIDs, ref_beads, ref_pops = embed_beads_energies(ref_mol)
 ref_reps = []
 
 for r_beads, r_confid in zip(ref_beads, ref_confIDs):
+
     rep = make_representation_morfeus(r_beads, ref_mol, R, r_confid)
 
     rep = scaler.transform(rep)
@@ -1001,23 +1011,37 @@ for r_beads, r_confid in zip(ref_beads, ref_confIDs):
 
 ref_flat_rep, ref_flat_beads, ref_flat_pop = flatten_desc(ref_reps, ref_beads, ref_pops)
 
+
+def measure_prob(prob_mol):
+
+    prob_mol, prob_confIDs, prob_beads, prob_pops = embed_beads_energies(prob_mol)
+
+    # make rep
+
+    prob_reps = []
+
+    for p_beads, p_confid in zip(prob_beads, prob_confIDs):
+        rep = make_representation_morfeus(p_beads, prob_mol, R, p_confid)
+
+        rep = scaler.transform(rep)
+
+        prob_reps.append(rep)
+
+    prob_flat_rep, prob_flat_beads, prob_flat_pops = flatten_desc(prob_reps, prob_beads, prob_pops)
+
+    # align beads to each set of ref_beads
+
+    aligned_beads_2, final_res, params = allign_reps(ref_flat_beads, prob_flat_beads, ref_flat_rep, prob_flat_rep,
+                                                     ref_flat_pop, prob_flat_pops, approx=True)
+
+    return float(final_res)
+
+
 ##########
 
 # physchem filters
 
-ref_props = Physchem_calc(ref_mol)
 
-ref_beads = make_beads(ref_mol, ref_confIDs, R)
-
-ref_reps = []
-
-for beads_, confid in zip(ref_beads, ref_confIDs):
-
-    ref_rep_ = make_representation_morfeus(beads_, ref_mol, R, confid)
-
-    ref_rep_ = scaler.transform(ref_rep_)
-
-    ref_reps.append(ref_rep_)
 
 # database_sdf
 
@@ -1067,33 +1091,25 @@ def SearchWorker(args):
 
             if Physchem_filter(prob_props, ref_props):
 
-                prob_mol, prob_confIDs, prob_beads, prob_pops = embed_beads_energies(prob_mol)
+                res1 = measure_prob(prob_mol)
 
-                #make rep
+                if res1 < threshold + 0.1:
 
-                prob_reps =[ ]
+                    print("test1" , res1)
 
-                for p_beads, p_confid in zip(prob_beads, prob_confIDs):
+                    res2 = measure_prob(prob_mol)
 
-                    rep = make_representation_morfeus(p_beads, prob_mol, R, p_confid)
+                    res3 = measure_prob(prob_mol)
 
-                    rep = scaler.transform(rep)
+                    res_av = np.median([res1,res2,res3])
 
-                    prob_reps.append(rep)
+                    if res_av < threshold:
 
-                prob_flat_rep, prob_flat_beads,prob_flat_pops  = flatten_desc(prob_reps, prob_beads, prob_pops)
+                        prob_mol.SetProp("_similarity", str(res_av))
+                        prob_mol.SetProp("_sims", str([res1,res2,res3]))
+                        NNs.append(prob_mol)
 
-                #align beads to each set of ref_beads
-
-                aligned_beads_2, final_res, params = allign_reps(ref_flat_beads, prob_flat_beads, ref_flat_rep, prob_flat_rep,
-                                                                 ref_flat_pop, prob_flat_pops)
-                if final_res < threshold:
-
-                    prob_mol.SetProp("_similarity", str(final_res))
-
-                    NNs.append(prob_mol)
-
-                    print("found ", proc, len(NNs))
+                        print("found" , res_av,[res1,res2,res3], "proc" , proc, "NNs" , len(NNs))
 
                 '''
                 if final_res < threshold:
@@ -1134,8 +1150,6 @@ for i, j in enumerate(chunks):
     args.append((ref_mol, j, c))
 
     c += 1
-
-
 
 import multiprocessing
 

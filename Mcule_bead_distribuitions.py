@@ -28,6 +28,8 @@ from morfeus import XTB
 from morfeus import Dispersion
 from morfeus import SASA
 
+from sklearn.preprocessing import StandardScaler
+
 import multiprocessing
 
 
@@ -633,14 +635,17 @@ def make_and_align_smiles(smiles):
 #####
 #
 
-database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
+#database = os.path.expanduser("~/mcule_purchasable_in_stock_221205.smi")
+
+database = Chem.SDMolSupplier("/Users/alexanderhowarth/Downloads/LL1.sdf")
+
 
 #database = "/Users/alexanderhowarth/Downloads/mcule_purchasable_in_stock_221205.smi"
 
 
 ###### have to run export MKL_NUM_THREADS=1 and export OMP_NUM_THREADS=1 before running
 
-
+'''
 def Search(args):
 
     i = 0
@@ -648,8 +653,6 @@ def Search(args):
     inds = args[0]
 
     proc = args[1]
-
-    s_file = open(database, "r")
 
     total_beads = []
 
@@ -705,6 +708,56 @@ def Search(args):
 
     #pickle.dump(boundaries, open("mcule_sample_boundaries.p","wb"))
 
+
+'''
+
+
+def Search_SDF(args):
+
+    mol_sup = args[0]
+
+    total_beads = []
+
+    for mol in tqdm.tqdm(mol_sup,total=len(mol_sup)):
+
+        try:
+
+            mol = standardize(mol)
+
+            if (mol.GetNumAtoms() < 2) or (Descriptors.MolWt(mol) > 1000):
+
+                mol = None
+
+            else:
+
+                mol = embed_mol_sdf(mol)
+
+        except:
+
+            mol = None
+
+        if mol:
+
+            #atomic_mass , positions, atomic_numbers, symbols, atom_aromatic = make_mol([mol])
+
+            #direction_vector , origin = find_basis(positions,atomic_mass)
+
+            #mols = change_basis([mol],direction_vector,origin)
+
+            beads_, bead_dist  = make_beads(mol,R)
+
+            train_descs = make_representation(beads_, mol,R)
+
+            total_beads.append( train_descs)
+
+            #now look at kde of columns of this matrix
+
+    #total_beads = np.array(total_beads)
+
+    pickle.dump(total_beads, open("LL1_beads.p", "wb"))
+
+    #pickle.dump(boundaries, open("mcule_sample_boundaries.p","wb"))
+
     '''
     bead_encoding = []
 
@@ -750,11 +803,29 @@ def estimate_R(s_file, n_samples):
     return np.average(np.array(Rs)[~np.isnan(Rs)])
 
 
+#Search_SDF([database,0])
+
+reps_ = pickle.load(open("LL1_beads.p" , "rb"))
+
+
+reps =[ ]
+for r in reps_:
+
+    if len(r) > 0:
+        reps.extend(r)
+
+scaler = StandardScaler()
+
+scaler.fit(reps)
+
+pickle.dump(scaler,open("BOAW_LL1_morfeus_scaler.p","wb"))
+
+'''
 if __name__ == '__main__':
 
     print("hello")
 
-    chunk_n = 600
+    chunk_n = 1
 
     db_length = len(open(database, "r").readlines())
 
@@ -772,7 +843,10 @@ if __name__ == '__main__':
 
         c +=1
 
-    p = multiprocessing.Pool(processes=60)
+
+
+
+    p = multiprocessing.Pool(processes=5)
 
     # defaults to os.cpu_count() workers
     p.map_async(Search, args)
@@ -783,10 +857,9 @@ if __name__ == '__main__':
 
     # perform process for each i in i_list
 
-
     #first work out average distance:
 
     #R = estimate_R(db_,n_samples)
 
 
-
+'''
